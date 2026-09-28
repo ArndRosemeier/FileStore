@@ -129,6 +129,17 @@ arm proves the pins hold the property. Both are needed.
 | `analyseChunks` judges COMPLETE / INCOMPLETE / MALFORMED and names the orphans | `analyseChunks reports a manifest COMPLETE only when every part it names is present with the recorded size and hash` · `analyseChunks reports INCOMPLETE, naming what is missing, when a part is absent, and MALFORMED when the manifest itself cannot be read` · `analyseChunks lists the parts that belong to NO manifest — the orphans an interrupted upload leaves` | `tests/lib/chunk.test.ts` | Remove `&& !claimed.has(name)` from the orphan filter: every claimed part becomes an orphan → the orphan pin RED. The manifest DOCUMENTS are a separate argument because a listing carries no content, so completeness cannot be judged from it. |
 | The streaming save writes every part in order, closes exactly once, and never materialises a part as an array | `the streaming save writes every part, in order, and closes the writable exactly once` · `the streaming picker is called BEFORE any part is built, so a cancel never pays for the file` · `a cancelled streaming picker is SILENT and writes nothing` · `the streaming save's no-picker path accumulates BLOBS, never arrays: no part is materialised as an array` · `a real streaming failure keeps its own reason, and aborts the writable rather than leaving it open` | `tests/lib/saveFileStreaming.test.ts` | **Arm E below**: materialise each part with `await part.arrayBuffer()` → `Blob.prototype.arrayBuffer` is called 3 times → the no-array pin ALONE RED, the 4 picker-path pins green. |
 
+| A chunked file is ONE row carrying its TOTAL size, and its parts are never rows | `a chunked file renders as ONE file row carrying the TOTAL size; its parts are never rows` · `a chunked file in a folder is one row there, and the folder counts it once` · `a part object is never a row even when no manifest can claim it` · `an INCOMPLETE manifest is one row plus a report naming what is missing` | `tests/features/chunkListing.test.tsx` | **Arm 4 below**: `visibleChunkEntries` skips a hidden name before pushing its replacement → the three chunked-row pins RED, the look-alike/orphan pins green. The defect is real and was caught this way: the FIRST run of this file had exactly those three RED, before this landing. |
+| A real file whose name only LOOKS like a manifest renders as a normal file, and an unread one is REPORTED — never hidden, never deleted | `a REAL FILE whose name only LOOKS like a manifest renders as a normal file, because its content does not parse` · `an apparent manifest that cannot be read is REPORTED, never hidden and never deleted` | `tests/features/chunkListing.test.tsx` | Arm 4's control: both stay GREEN while the chunked-row pins go RED. The pins also assert `deleteObject` was never called and that the object is still a row with its own actions. |
+| An interrupted chunked upload leaves NO visible file, and its parts are reported as orphans | `an interrupted chunked upload leaves NO visible file, and its parts are reported as orphans` (the VIEW in `chunkListing`, the WRITE in `chunkUpload`) | `tests/features/chunkListing.test.tsx`, `tests/features/chunkUpload.test.tsx` | Empty the orphan report (`orphans: []`) → both pins RED. The write pin also proves the manifest was NEVER written, so the failure cannot look like a file. |
+| An upload at or below the part size takes the UNCHANGED single-object path; above it every part and the manifest LAST | `an upload AT the part size takes the single-object path, and the decision is the size alone` · `the small planner and the frozen one agree EXACTLY at the service’s part size` · `an upload at or below the part size takes the UNCHANGED single-object path` · `an upload above the part size writes every part and the manifest LAST, and never the object itself` | `tests/features/chunkUpload.test.tsx` | Arm 5's control (the write-order pins stayed GREEN while progress went RED). The order is asserted on the `putObject` call sequence AND on the parsed manifest, and `planUploadChunks` is pinned EQUAL to the frozen `planChunks` at the service’s cap so the small-fixture planner cannot drift. |
+| A part that exceeds the server's cap fails LOUDLY naming the part, with no retry and no smaller split | `a part that exceeds the server’s cap fails LOUDLY naming the part, with no retry and no smaller split` | `tests/features/chunkUpload.test.tsx` | The 413 MAPPING is slice A's (`tests/lib/chunk.test.ts`, Arm D); this pin proves the UI adds NO retry and NO smaller split — two parts attempted, then STOP — and names the refused part in the toast. |
+| Progress is reported per part | `progress is reported per part, in order, and the manifest is not a part` · `the upload shows a per-part progress surface while the parts are being written` · `the chunked download reports progress per part` | `tests/features/chunkUpload.test.tsx`, `tests/features/chunkDownload.test.tsx` | **Arm 5 below**: drop the per-part report → the two upload progress pins RED (9 green). The surface is asserted through `aria-valuenow` as the store answers, and it does not exist before the first VERIFIED part — a count, not a spinner. |
+| Overwriting a chunked file writes a NEW GENERATION before the manifest is swapped, and only then OFFERS the old parts | `a chunked file is protected by its LOGICAL name: the upload refuses until the owner confirms` · `overwriting a chunked file writes a NEW GENERATION before the manifest is swapped` · `nextChunkGeneration refuses to reuse the previous generation` | `tests/features/chunkUpload.test.tsx` | **Arm 2 below**: stop claiming the chunked file's LOGICAL name → the gate pin RED, and the generation pin too (its setup needs the confirmation to appear) — an HONEST coupling, recorded rather than hidden. The old parts are only OFFERED: the pin asserts `deleteObject` was not called until the owner confirms. |
+| Deleting a chunked file removes the manifest AND every part, after a confirmation naming the COUNT | `deleting a chunked file removes the manifest AND every part, after a confirmation naming the count` · `a chunked delete that fails part way says what remains instead of claiming success` | `tests/features/chunkDelete.test.tsx` | **Arm 3 below**: take the parts first → the order pin RED alone (the partial-failure pin green). The manifest goes FIRST, so a failure leaves reported orphans rather than a visible file with missing bytes. |
+| A chunked download verifies every part against the service AND the manifest, refuses on a mismatch, and never materialises the file | `a chunked download verifies every part against the manifest and REFUSES to save on a mismatch` · `a part whose bytes do not match the service’s own x-serverstore-sha256 is refused too` · `the manifest must be consistent with the listing before any part is fetched` · `a chunked download never materialises the whole file: every part is written as it arrives` · `a cancelled picker costs NO manifest read and NO part fetch` | `tests/features/chunkDownload.test.tsx` | **Arm 1 below**: drop the manifest-hash comparison → the mismatch pin RED ALONE, the service-header pin GREEN (SPECIFIC). The streaming pin records, per write, how many reads had happened (a materialised file would show every read before the first write) and asserts the anchor path was never used. |
+| The chunk source reads ONE part at a time | `the chunk source reads ONE part at a time: a zero-copy view over bytes, and slice() over a File` | `tests/features/chunkUpload.test.tsx` | Break `fileChunkSource` to read the whole blob → the `slice(2, 5)` assertion RED; a second copy over bytes is caught by the `buffer` identity assertion. |
+
 ## Raw logs
 
 The gate writes to `.gate-logs/gate.log` (gitignored). The raw log is kept until the
@@ -777,3 +788,93 @@ likely to be brand new and therefore wrong.
   reading it; integrity is PER-PART with no whole-file digest (WebCrypto has no incremental
   digest); and the anchor path's peak memory is BROWSER behaviour (whether Blob storage
   spills to disk) that this app cannot guarantee. See `docs/ARCHITECTURE.md` §4.
+
+### c53bfa0 — row 12, slice B (the chunked file in the UI)
+
+- **What landed.** The seams of slice A (`src/lib/chunk.ts`, `saveFileStreaming`) wired
+  into the app, under `src/features/files/`: `chunks.ts` (the pure view: one row per
+  READABLE manifest with the LOGICAL name and the TOTAL size, the parts and the manifest
+  hidden, plus reports, orphans, uncertain claims and conflicts), `useChunkManifests.ts`
+  (the reads the listing implies, one at a time), `chunkUpload.ts` (the shape decision,
+  the new generation, per-part progress), `chunkDownload.ts` (the verified, streaming
+  read) and `ChunkPanel.tsx` (the report, with no action in it). `folders.ts` gained an
+  optional third argument so the DELETE counts are computed from the untransformed
+  listing, and `folderOps.ts#deleteObjectNames` is now the ONE sequential delete.
+  `src/lib/**` was NOT touched: the open seam reads a picked file whole, which is the
+  one place this slice's memory claim is bounded by someone else's code (see below).
+- **The counts: 20 files / 183 tests → 24 files / 210 tests**, all 183 pre-existing pins
+  green. Gate: `bash scripts/gate.sh` **exit 0** · cheap tier `tsc -b` green · full tier
+  `eslint . && vitest run` · **24 files · 210/210 tests** · peak RSS **848,884 KB** ·
+  wall 31.94 s · raw log `.gate-logs/gate.log`, and the peak was read from
+  `/usr/bin/time -o .gate-logs/time-ui.txt -v` so the run itself stayed UN-PIPED.
+  **One earlier run was piped through `grep` and its exit code was therefore VOID** (a
+  pipeline returns the last command's status); it was re-run un-piped and the numbers
+  above come from that run. Recorded because a masked exit code is exactly the trap this
+  project keeps re-learning. The gate was then re-run on the docs tip itself
+  (identical counts: **exit 0 · 24 files · 210/210**; the peak is a run-to-run
+  figure — 848,884 KB and 837,260 KB across these two runs — raw log
+  `.gate-logs/gate.log`), so the pushed HEAD is gated, not only the code commit
+  beneath it.
+- **COPIES: 2→1** — `src/features/files/folderOps.ts#deleteObjectNames` now carries the
+  one sequential delete (folder delete and a chunked file's delete both route through
+  it). Checked the rest by grep: `isChunkManifestName`/`isChunkPartName`/`chunkPartName`/
+  `chunkManifestName`, `buildManifest`/`parseManifest`, `putObject`/`getObject`/
+  `deleteObject` each have exactly one home in `src/features/files/**`, and no file
+  composes a chunk name inline (`chunkManifestName`/`chunkPartName` are called, never
+  spelled).
+- **The arms, on the committed tree `c53bfa0`, every hash printed, restore from HEAD in a
+  `trap`.** Baseline file hashes: `chunkDownload.ts` `5e99ab0c…`, `chunks.ts`
+  `19c4ddbd…`, `chunkUpload.ts` `bfea70c0…`.
+  - **Arm 1 — the manifest-hash comparison is dropped.** `chunkDownload.ts`
+    `5e99ab0c…` → `cfb7c7f0…` (DIFFERENT) → **RED** (exit 1, **1 failed | 5 passed**) on
+    exactly `a chunked download verifies every part against the manifest and REFUSES to
+    save on a mismatch` (`AssertionError: expected '' to match /Refusing to save/`). The
+    service-header pin beside it stayed GREEN, so the arm is specific to the MANIFEST
+    comparison rather than to "some verification exists".
+  - **Arm 2 — a chunked file is no longer claimed by its LOGICAL name.**
+    `chunks.ts` `19c4ddbd…` → `1c4721ab…` → **RED** (exit 1, **2 failed | 9 passed**): the
+    overwrite-gate pin `a chunked file is protected by its LOGICAL name…` AND
+    `overwriting a chunked file writes a NEW GENERATION before the manifest is swapped`,
+    whose SETUP needs the confirmation checkbox to exist. HONESTLY COUPLED and recorded:
+    the second red is a consequence of the first, not a second defect.
+  - **Arm 3 — the delete takes the parts before the manifest.** `chunks.ts`
+    `19c4ddbd…` → `fba3b078…` → **RED** (exit 1, **1 failed | 1 passed**) on exactly
+    `deleting a chunked file removes the manifest AND every part, after a confirmation
+    naming the count` (`expected [ …(4) ] to deeply equal [ 'big.bin--manifest', …(3) ]`).
+    The partial-failure pin stayed GREEN.
+  - **Arm 4 — a hidden name short-circuits before its replacement.** `chunks.ts`
+    `19c4ddbd…` → `480df806…` → **RED** (exit 1, **3 failed | 4 passed**): the three
+    chunked-row pins. The look-alike, unreadable, orphan and part-never-a-row pins stayed
+    GREEN. This is the same defect the file itself caught on its first run.
+  - **Arm 5 — the per-part progress report is dropped.** `chunkUpload.ts`
+    `bfea70c0…` → `5b9479e6…` → **RED** (exit 1, **2 failed | 9 passed**): both upload
+    progress pins. The write-order and 413 pins stayed GREEN.
+  - **Restore:** every file back to its baseline hash, `git status --porcelain` clean
+    apart from the scratch directory, which was removed before this report. No browser was
+    started, so there was no tree to reap.
+- **What is NOT pinned, and is DEBT rather than a papered-over gap** (fuller text in
+  `docs/ARCHITECTURE.md` §4):
+  - **The upload still holds the whole file once**, because `src/lib/openFile.ts` reads a
+    picked file whole and was out of scope. `uploadChunkedReview` takes its bytes from an
+    injected `ChunkSource`;
+    `bytesChunkSource` hands each part over as a zero-copy `subarray` VIEW (so this slice
+    adds no copy), and `fileChunkSource(File|Blob)` — one `slice()` per part, pinned — is
+    the same seam the day the open seam can hand a `File` over. So the brief's "the
+    browser never holds the whole file" holds for the DOWNLOAD (streamed, one part in
+    memory) and is NOT YET TRUE for the UPLOAD. This is the one place the brief could not
+    be implemented as written, and it is a `src/lib/**` change, which the brief froze.
+  - **No multi-GB file has been exercised in a real browser.** Every pin uses a
+    `chunkPartSize` of a few BYTES, because `planChunks` (frozen) hard-codes the service's
+    64 MiB cap and no test may build a 64 MiB buffer; `chunkPartSize` is a PROP that
+    exists for exactly that (production always passes the default).
+  - **The anchor (no-picker) path's peak memory is browser behaviour** — whether Blob
+    storage spills to disk — and is not ours to guarantee.
+  - **Orphan deletion and repair do not exist, deliberately.** Orphans are reported, named
+    one by one, and nothing deletes them; a sweep is a separate destructive slice with its
+    own confirmation.
+  - **A chunked row's digest is the MANIFEST's digest**, because the store holds no
+    whole-file digest; the cell's `title` says so.
+  - **The remaining ambiguity is the name heuristic** (`docs/BOARD.md`'s trap): an
+    UNREAD manifest-shaped object makes an upload under its heuristic logical name ask for
+    confirmation, and its logical name is a GUESS — the safe direction (friction over a
+    silent clobber), but a guess.
