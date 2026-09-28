@@ -21,6 +21,18 @@
  * proxy could make echo the `Authorization` header back. Nothing is swallowed by
  * this: the message is still shown, with the credential replaced by `[redacted]`.
  *
+ * "EVERY CREDENTIAL THE APP KNOWS ABOUT" IS TWO THINGS, and the second was a real
+ * gap the dispatcher's probe found after this slice's first landing: the STORED
+ * key, and the credential a caller says it actually SENT. The Settings panel's
+ * "Test connection" proves a DRAFT key that is not saved yet — the key most likely
+ * to be brand new and wrong — so a failure on that path showed the key in
+ * plaintext in both the inline alert and the toast. A caller that used a
+ * credential other than the stored one passes it (see
+ * {@link ToastErrorOptions.credential}); the stored key is still ALWAYS redacted,
+ * so neither path depends on the other. The candidates are redacted LONGEST
+ * FIRST, or a stored key that is a prefix of the one in use would leave the
+ * remainder of the longer credential sitting in the text.
+ *
  * WHAT IS DELIBERATELY NOT HERE: success/notice toasts carry no policy beyond
  * sonner's default; only the error path is opinionated.
  */
@@ -36,6 +48,9 @@ import { readSettings } from '@/settings/settings';
  */
 export const ERROR_TOAST_DURATION_MS = Number.POSITIVE_INFINITY;
 
+/** What a credential becomes in any text the owner can read. */
+export const REDACTED_CREDENTIAL = '[redacted]';
+
 /** What a caller may say about the toast itself (never about its text). */
 export interface ToastErrorOptions {
   /**
@@ -44,6 +59,13 @@ export interface ToastErrorOptions {
    * (React StrictMode mounts an effect twice in development) to ONE toast.
    */
   id?: string;
+  /**
+   * The credential IN USE when the failure happened, when it is not the stored
+   * one: the Settings panel's "Test connection" proves a DRAFT key that has not
+   * been saved. It is redacted IN ADDITION to the stored key, never instead of
+   * it. Passed for redaction only — nothing here builds a request with it.
+   */
+  credential?: string;
 }
 
 /** The stored key, read ONLY so it can be redacted — never to be rendered. */
@@ -53,14 +75,22 @@ function storedKey(): string {
 }
 
 /**
- * Replace the stored credential with `[redacted]`, wherever it appears. An empty
- * key (the honest first-run state) redacts nothing, so no ordinary text is
- * mangled by an empty-pattern replace.
+ * Replace every credential the app knows about with {@link REDACTED_CREDENTIAL},
+ * wherever it appears: the STORED key always, and the caller's credential IN USE
+ * when one is given. An empty key (the honest first-run state) redacts nothing,
+ * so no ordinary text is mangled by an empty-pattern replace.
  */
-export function redactCredential(text: string): string {
-  const key = storedKey();
-  if (key === '') return text;
-  return text.split(key).join('[redacted]');
+export function redactCredential(text: string, credential?: string): string {
+  const secrets = [storedKey(), credential ?? '']
+    .filter((secret) => secret !== '')
+    // Longest first: a stored key that is a PREFIX of the credential in use would
+    // otherwise redact its own prefix and leave the rest of the longer one behind.
+    .sort((left, right) => right.length - left.length);
+  let redacted = text;
+  for (const secret of secrets) {
+    redacted = redacted.split(secret).join(REDACTED_CREDENTIAL);
+  }
+  return redacted;
 }
 
 /** The human detail for a failure, without any context prefix. */
@@ -93,18 +123,19 @@ export function errorText(error: unknown, context?: string): string {
 
 /**
  * The exact text the owner sees, in a toast AND wherever the shell renders a
- * failure inline: `errorText` with the credential redacted. Returned as a string
- * so a component can render it and this module can toast it — ONE composition,
- * two surfaces.
+ * failure inline: `errorText` with the credentials redacted (the stored key, plus
+ * `credential` — the one the caller actually sent — when it is given). Returned as
+ * a string so a component can render it and this module can toast it — ONE
+ * composition, two surfaces.
  */
-export function errorMessage(error: unknown, context?: string): string {
-  return redactCredential(errorText(error, context));
+export function errorMessage(error: unknown, context?: string, credential?: string): string {
+  return redactCredential(errorText(error, context), credential);
 }
 
 /** Show a failure. It does not auto-dismiss; it is never called for a cancel. */
 export function toastError(error: unknown, context?: string, options: ToastErrorOptions = {}): void {
   const id = options.id;
-  toast.error(errorMessage(error, context), {
+  toast.error(errorMessage(error, context, options.credential), {
     duration: ERROR_TOAST_DURATION_MS,
     ...(id === undefined ? {} : { id }),
   });

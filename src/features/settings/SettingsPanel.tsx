@@ -42,12 +42,21 @@ export interface SettingsPanelProps {
   onForgotten: () => void;
 }
 
-/** What the manual probe is doing right now. */
+/**
+ * What the manual probe is doing right now.
+ *
+ * The `failed` state carries the ALREADY-COMPOSED message, not the error: the
+ * credential that failed is the DRAFT one, which is not stored yet, and the text
+ * must be redacted with THAT credential at the moment of failure. Composing it
+ * here (rather than at render time, against whatever the draft holds by then)
+ * means an edit to the key field after a failure cannot un-redact the old one —
+ * and it keeps the credential out of React state.
+ */
 type ProbeState =
   | { status: 'idle' }
   | { status: 'testing' }
   | { status: 'ok'; who: WhoAmI }
-  | { status: 'failed'; error: unknown };
+  | { status: 'failed'; message: string };
 
 export function SettingsPanel({
   settingsRead,
@@ -79,8 +88,14 @@ export function SettingsPanel({
       const who = await whoami(storeTargetFrom(draft));
       setProbe({ status: 'ok', who });
     } catch (error: unknown) {
-      setProbe({ status: 'failed', error });
-      toastError(error, 'The connection test failed');
+      // This probe sent the DRAFT key, which may not be stored at all — so that
+      // key is redacted EXPLICITLY, in addition to the stored one. Both surfaces
+      // get the same composition.
+      setProbe({
+        status: 'failed',
+        message: errorMessage(error, 'The connection test failed', draft.key),
+      });
+      toastError(error, 'The connection test failed', { credential: draft.key });
     }
   }
 
@@ -194,7 +209,7 @@ export function SettingsPanel({
 
       {probe.status === 'failed' ? (
         <p role="alert" className="text-danger mt-3 text-sm">
-          {errorMessage(probe.error, 'The connection test failed')}
+          {probe.message}
         </p>
       ) : null}
     </section>

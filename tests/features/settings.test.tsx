@@ -199,6 +199,42 @@ it('after a FAILED request the key appears in NO rendered text and NO toast', as
   expect(window.location.href).not.toContain(CONFIGURED.key);
 });
 
+it('a FAILED test of a DRAFT key redacts THAT key too, not only the stored one', async () => {
+  // The stored key is deliberately a PREFIX of the draft one: redacting the
+  // shorter string first would leave `[redacted]_credential_111` — a partial
+  // leak — so this pin also holds the longest-credential-first order.
+  const STORED = 'ssk_STORED_old';
+  const DRAFT = 'ssk_STORED_old_credential_111';
+  const user = userEvent.setup();
+  writeSettings({ ...CONFIGURED, key: STORED });
+  // The shell proves the STORED key first; only the panel's manual probe sees the
+  // draft, and it is refused with the draft key echoed back (the same threat
+  // model as the stored-key pin above: a proxy echoing the header).
+  vi.mocked(whoami)
+    .mockResolvedValueOnce(WHO)
+    .mockRejectedValue(
+      new ServerStoreError(
+        'unauthorized',
+        `ServerStore refused (unauthorized): the key ${DRAFT} was rejected`,
+        { status: 401, serverMessage: `the key ${DRAFT} was rejected` },
+      ),
+    );
+
+  render(<App />);
+  await screen.findByText(/connected as/i);
+  await user.clear(screen.getByLabelText('Key'));
+  await user.type(screen.getByLabelText('Key'), DRAFT);
+  await user.click(screen.getByRole('button', { name: 'Test connection' }));
+
+  // The credential IN USE is redacted in BOTH surfaces, in full.
+  const alert = await screen.findByRole('alert');
+  expect(alert).toHaveTextContent('the key [redacted] was rejected');
+  expect(document.body.textContent).not.toContain(DRAFT);
+  expect(document.body.textContent).not.toContain(STORED);
+  expect(recordedToast(0)).not.toContain(DRAFT);
+  expect(recordedToast(0)).toContain('[redacted]');
+});
+
 it('saving an invalid Base URL is refused LOUDLY and writes nothing', async () => {
   const user = userEvent.setup();
   render(<App />);
