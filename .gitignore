@@ -13,3 +13,8 @@ node_modules/
 # Local scratch
 *.local
 .DS_Store
+
+# Headless-browser profiles from a boot check. The kill+remove happens in a trap,
+# but Chrome recreates its profile while shutting down, so a raced cleanup can leave
+# one behind — and scratch must never be committable.
+/.browser-scratch-*/
