@@ -30,3 +30,24 @@ body {
   font-family:
     ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
 }
+
+/*
+ * The few rules that are not per-element decisions, in ONE place: a control that
+ * cannot be used must LOOK that way, and a focused control must be visible. Both
+ * are stated once here rather than repeated as utilities on every button.
+ */
+@layer base {
+  button:not(:disabled) {
+    cursor: pointer;
+  }
+
+  button:disabled {
+    cursor: not-allowed;
+    opacity: 0.55;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
+  }
+}

@@ -1,5 +1,6 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
+import { Toaster } from 'sonner';
 
 import { App } from '@/App';
 import '@/index.css';
@@ -14,5 +15,11 @@ if (host === null) {
 createRoot(host).render(
   <StrictMode>
     <App />
+    {/*
+      THE toast container, mounted once for the ONE error surface
+      (`src/lib/toast.ts`). `closeButton` gives the owner the way out of an error
+      toast, which never auto-dismisses; `richColors` makes an error read as one.
+    */}
+    <Toaster position="bottom-right" theme="dark" richColors closeButton />
   </StrictMode>,
 );
