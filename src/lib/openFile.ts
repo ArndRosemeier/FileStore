@@ -28,10 +28,17 @@
  * resolved as `{cancelled}` rather than handed on as a successful open of
  * nothing.
  *
- * WHY THE WHOLE FILE IS READ HERE: an upload needs every byte (and an integrity
- * check hashes them), so there is nothing to stream and no callback to defer. A
- * picked file is read once, into memory, and handed on as one `Uint8Array` per
- * file, in the order the owner selected them.
+ * **THIS SEAM READS NO FILE BYTES (ledger row 13).** It hands over the `File`
+ * the browser produced — the picker's `handle.getFile()` or the input's
+ * `input.files[0]` — plus the browser's own `file.size`. Reading a picked file
+ * whole HERE would force a GB-range upload to materialise the whole file before
+ * anything downstream could stream it, which is exactly what the chunked write
+ * exists to avoid. Each consumer reads only what it needs, when it needs it:
+ * the upload's review decides zero-byte from `size`, the single-object path
+ * reads the file ONCE at `putObject` time, and the chunked path reads one
+ * `file.slice(start, end)` per part (`src/features/files/chunkUpload.ts`'s
+ * `fileChunkSource`). Nothing about the branch matrix, the cancel rule or the
+ * ordering below changed when the bytes left this module.
  *
  * THE ABSENT-PICKER FALLBACK AND ITS HONEST LIMIT: a hidden
  * `<input type="file">` is appended, clicked and removed. Its `change` event
@@ -58,12 +65,14 @@ export interface OpenFileRequest {
   multiple?: boolean;
 }
 
-/** One chosen file, read whole. */
+/** One chosen file, handed on UNREAD. */
 export interface OpenedFile {
   /** The name the file had on disk (shown to the owner, never trusted as a path). */
   fileName: string;
-  /** The entire contents. */
-  bytes: Uint8Array<ArrayBuffer>;
+  /** The browser's `File` — the bytes are read by the caller, on demand, never here. */
+  file: File;
+  /** The browser's own `file.size`; no read was needed to learn it. */
+  size: number;
 }
 
 /**
@@ -94,18 +103,13 @@ function openTypeFor(request: OpenFileRequest): OpenTypeDescription | undefined 
   };
 }
 
-/** Read a picked `File` whole. The read failure keeps its own reason. */
-async function readFile(file: File): Promise<OpenedFile> {
-  return { fileName: file.name, bytes: new Uint8Array(await file.arrayBuffer()) };
-}
-
 /**
- * Read every chosen file, in the order given. `Promise.all` keeps that order
- * (it resolves to the inputs' order, not to completion order) while the reads
- * themselves overlap.
+ * Hand one chosen `File` on UNREAD: its name, the handle itself and the
+ * browser's own size. No bytes are touched — mapping a selection through this
+ * hands the order the owner chose over without a single whole-file read.
  */
-function readAll(files: readonly File[]): Promise<OpenedFile[]> {
-  return Promise.all(files.map((file) => readFile(file)));
+function openedFrom(file: File): OpenedFile {
+  return { fileName: file.name, file, size: file.size };
 }
 
 /**
@@ -114,7 +118,7 @@ function readAll(files: readonly File[]): Promise<OpenedFile[]> {
  * from a clean element rather than reusing one with a stale `files` list.
  */
 function inputOpen(request: OpenFileRequest): Promise<OpenOutcome> {
-  return new Promise<OpenOutcome>((resolve, reject) => {
+  return new Promise<OpenOutcome>((resolve) => {
     const input = document.createElement('input');
     input.type = 'file';
     input.hidden = true;
@@ -136,15 +140,7 @@ function inputOpen(request: OpenFileRequest): Promise<OpenOutcome> {
         settle({ status: 'cancelled' });
         return;
       }
-      readAll([...files]).then(
-        (opened) => {
-          settle({ status: 'opened', files: opened });
-        },
-        (error: unknown) => {
-          cleanup();
-          reject(error instanceof Error ? error : new Error(String(error)));
-        },
-      );
+      settle({ status: 'opened', files: [...files].map((file) => openedFrom(file)) });
     };
     const onCancel = (): void => {
       settle({ status: 'cancelled' });
@@ -158,8 +154,9 @@ function inputOpen(request: OpenFileRequest): Promise<OpenOutcome> {
 }
 
 /**
- * Ask the owner for one or more files and read them. Resolves with the bytes or
- * with `cancelled`; THROWS on a real failure (never on a cancel).
+ * Ask the owner for one or more files and hand each one over UNREAD. Resolves
+ * with the `File`s or with `cancelled`; THROWS on a real failure (never on a
+ * cancel), including a picker handle whose `getFile()` rejects.
  */
 export async function openFile(request: OpenFileRequest): Promise<OpenOutcome> {
   const picker = (window as unknown as OpenFilePickerWindow).showOpenFilePicker;
@@ -179,5 +176,5 @@ export async function openFile(request: OpenFileRequest): Promise<OpenOutcome> {
   }
   if (handles.length === 0) return { status: 'cancelled' };
   const files = await Promise.all(handles.map((handle) => handle.getFile()));
-  return { status: 'opened', files: await readAll(files) };
+  return { status: 'opened', files: files.map((file) => openedFrom(file)) };
 }

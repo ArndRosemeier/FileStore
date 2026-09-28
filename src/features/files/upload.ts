@@ -14,7 +14,9 @@
  *     cannot map is a refusal carrying the seam's own reason — never a guess.
  *  2. **A zero-byte file cannot be stored at all** (`400 invalid_body`), so it is
  *     refused here, with the reason, before any request is issued — the client can
- *     say why instead of spending a round trip to learn it.
+ *     say why instead of spending a round trip to learn it. The test is the
+ *     browser's own `size` (ledger row 13): the review reads NO bytes, so a review
+ *     of three 2 GB files materialises nothing.
  *
  * The collision test is deliberately its own step: the caller lists the store,
  * hands the names to {@link collidingObjectNames}, and {@link unconfirmedOverwrites}
@@ -43,8 +45,13 @@ export interface UploadReview {
   objectName: string;
   /** True when the mapped FILE part differs from `fileName` — the owner's rename. */
   renamed: boolean;
-  /** Every byte, ready to be PUT. */
-  bytes: Uint8Array<ArrayBuffer>;
+  /**
+   * The picked `File`, handed on UNREAD (ledger row 13). The single-object path
+   * reads it once at write time; the chunked path slices one part at a time.
+   */
+  file: File;
+  /** The browser's own `file.size` — the review's zero-byte test, and the shape decision. */
+  size: number;
 }
 
 /** One file that will NOT be stored, and why. Nothing was sent for it. */
@@ -81,7 +88,10 @@ export function reviewUploads(
   const refused: UploadRefusal[] = [];
 
   for (const file of files) {
-    if (file.bytes.length === 0) {
+    // The browser's own `size` decides zero-byte: NO read is needed, and none is
+    // done (ledger row 13). Reading here would be the very whole-file read this
+    // seam exists to avoid.
+    if (file.size === 0) {
       refused.push({ fileName: file.fileName, message: zeroByteRefusal(file.fileName) });
       continue;
     }
@@ -91,7 +101,8 @@ export function reviewUploads(
         fileName: file.fileName,
         objectName: mapping.objectName,
         renamed: mapping.changed,
-        bytes: file.bytes,
+        file: file.file,
+        size: file.size,
       });
     } catch (error: unknown) {
       // `toObjectName` throws `ObjectNameMappingError` rather than inventing a

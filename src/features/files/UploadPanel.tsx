@@ -31,6 +31,13 @@
  *      never removed on its own. A single-object overwrite of a chunked file
  *      offers the whole old representation the same way.
  *
+ * NO STEP HERE MATERIALISES A WHOLE FILE EXCEPT THE ONE THAT MUST: the review and
+ * the collision listing touch no bytes (the review decides zero-byte from the
+ * browser's `size`), the single-object path reads the file ONCE at its `putObject`
+ * call, and the chunked path reads one `slice()` per part. That is ledger row 13:
+ * the open seam hands over a `File`, so a GB-range selection costs handles, not
+ * memory, until each file is actually written.
+ *
  * A failure at any step is shown through the ONE error surface
  * (`src/lib/toast.ts`) and the batch stays in the panel so the owner can retry
  * rather than re-pick every file.
@@ -218,10 +225,15 @@ export function UploadPanel({
         const chunked = chunkedRowFor(review.objectName);
         const plainExists = listing.some((entry) => entry.name === review.objectName);
         try {
-          if (uploadShapeFor(review.bytes.length, chunkPartSize) === 'single') {
-            // The row-9 path, UNCHANGED: one request, and the shape decision is
-            // the only thing between it and the chunked branch.
-            await putObject(target, review.objectName, review.bytes);
+          if (uploadShapeFor(review.size, chunkPartSize) === 'single') {
+            // The row-9 path: one request. The picked file is read EXACTLY ONCE,
+            // HERE, at write time (ledger row 13) — never at open time and never
+            // in the review, so picking a GB file costs nothing until it is sent.
+            await putObject(
+              target,
+              review.objectName,
+              new Uint8Array(await review.file.arrayBuffer()),
+            );
             // A chunked file that this single object replaces is offered for
             // removal — its manifest and its parts are still there.
             if (chunked !== null) {

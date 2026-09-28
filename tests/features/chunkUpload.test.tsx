@@ -91,6 +91,19 @@ async function stored(name: string, bytes: Uint8Array<ArrayBuffer>): Promise<Put
   };
 }
 
+/**
+ * What the open seam now hands over (ledger row 13): a REAL `File` plus its own
+ * size, so a chunked upload reads it through `fileChunkSource` slice by slice
+ * instead of receiving pre-read bytes.
+ */
+function pickedFile(
+  fileName: string,
+  bytes: Uint8Array<ArrayBuffer>,
+): { status: 'opened'; files: { fileName: string; file: File; size: number }[] } {
+  const file = new File([bytes], fileName, { type: 'application/octet-stream' });
+  return { status: 'opened', files: [{ fileName, file, size: file.size }] };
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(listObjects).mockResolvedValue([]);
@@ -115,8 +128,9 @@ it('the small planner and the frozen one agree EXACTLY at the service’s part s
 });
 
 it('the chunk source reads ONE part at a time: a zero-copy view over bytes, and slice() over a File', async () => {
-  // The production source: the reviewed bytes are already in memory (the open
-  // seam reads a picked file whole), so each part is a VIEW — no second copy.
+  // The bytes source, for a caller that already holds them: each part is a VIEW,
+  // so it makes no second copy. Production does NOT use it (ledger row 13): a
+  // `Uint8Array` here would mean the whole file had already been read.
   const bytes = new Uint8Array([1, 2, 3, 4, 5, 6]);
   const fromBytes = bytesChunkSource(bytes);
   expect(fromBytes.size).toBe(6);
@@ -124,8 +138,8 @@ it('the chunk source reads ONE part at a time: a zero-copy view over bytes, and 
   expect(Array.from(view)).toEqual([2, 3, 4]);
   expect(view.buffer).toBe(bytes.buffer);
 
-  // The File source — the SAME seam over a `File`/`Blob`, which is what the
-  // production caller wants the day the open seam can hand one over.
+  // The File source — the SAME seam over a `File`/`Blob`, and the PRODUCTION
+  // source: the open seam hands over a `File`, and each part is one `slice()`.
   const file = new Blob([new Uint8Array([1, 2, 3, 4, 5, 6])]);
   const slice = vi.spyOn(file, 'slice');
   const fromFile = fileChunkSource(file);
@@ -139,10 +153,7 @@ it('an upload at or below the part size takes the UNCHANGED single-object path',
   await waitFor(() => {
     expect(listObjects).toHaveBeenCalled();
   });
-  vi.mocked(openFile).mockResolvedValue({
-    status: 'opened',
-    files: [{ fileName: 'exact.bin', bytes: new Uint8Array([1, 2, 3, 4]) }],
-  });
+  vi.mocked(openFile).mockResolvedValue(pickedFile('exact.bin', new Uint8Array([1, 2, 3, 4])));
   const user = userEvent.setup();
   await user.click(screen.getByRole('button', { name: 'Choose files…' }));
   await user.click(await screen.findByRole('button', { name: 'Upload 1 object' }));
@@ -182,10 +193,7 @@ it('an upload above the part size writes every part and the manifest LAST, and n
   await waitFor(() => {
     expect(listObjects).toHaveBeenCalled();
   });
-  vi.mocked(openFile).mockResolvedValue({
-    status: 'opened',
-    files: [{ fileName: 'big.bin', bytes: new Uint8Array(bytes) }],
-  });
+  vi.mocked(openFile).mockResolvedValue(pickedFile('big.bin', new Uint8Array(bytes)));
   const user = userEvent.setup();
   await user.click(screen.getByRole('button', { name: 'Choose files…' }));
   await user.click(await screen.findByRole('button', { name: 'Upload 1 object' }));
@@ -219,6 +227,57 @@ it('an upload above the part size writes every part and the manifest LAST, and n
   expect(screen.queryByText(fixture.partNames[0] ?? '')).toBeNull();
 });
 
+it('the chunked path reads only SLICES: the whole-file read is never called, and each part read covers only that part range', async () => {
+  const file = new File([new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12])], 'big.bin', {
+    type: 'application/octet-stream',
+  });
+  // The whole-file read is the thing row 13 removed from this path, so it is
+  // asserted NOT CALLED rather than merely left alone.
+  const wholeRead = vi.spyOn(file, 'arrayBuffer');
+  const ranges: [number, number][] = [];
+  const originalSlice = file.slice.bind(file);
+  vi.spyOn(file, 'slice').mockImplementation((start?: number, end?: number) => {
+    ranges.push([start ?? 0, end ?? file.size]);
+    return originalSlice(start, end);
+  });
+
+  render(<FileBrowser target={TARGET} who={WHO} chunkPartSize={PART_SIZE} />);
+  await waitFor(() => {
+    expect(listObjects).toHaveBeenCalled();
+  });
+  vi.mocked(openFile).mockResolvedValue({
+    status: 'opened',
+    files: [{ fileName: 'big.bin', file, size: file.size }],
+  });
+  const user = userEvent.setup();
+  await user.click(screen.getByRole('button', { name: 'Choose files…' }));
+  await user.click(await screen.findByRole('button', { name: 'Upload 1 object' }));
+
+  await waitFor(() => {
+    expect(putObject).toHaveBeenCalledTimes(4);
+  });
+
+  // No whole-file read at all...
+  expect(wholeRead).not.toHaveBeenCalled();
+  // ...and exactly one slice per PART, each covering only that part's byte range.
+  expect(ranges).toEqual([
+    [0, 4],
+    [4, 8],
+    [8, 12],
+  ]);
+  // The bytes each request carried are exactly the file's own slice.
+  expect(
+    vi
+      .mocked(putObject)
+      .mock.calls.slice(0, 3)
+      .map((call) => Array.from(call[2])),
+  ).toEqual([
+    [1, 2, 3, 4],
+    [5, 6, 7, 8],
+    [9, 10, 11, 12],
+  ]);
+});
+
 /* ---------------------------------------------------------------- the 413 rule */
 
 it('a part that exceeds the server’s cap fails LOUDLY naming the part, with no retry and no smaller split', async () => {
@@ -241,10 +300,7 @@ it('a part that exceeds the server’s cap fails LOUDLY naming the part, with no
   await waitFor(() => {
     expect(listObjects).toHaveBeenCalled();
   });
-  vi.mocked(openFile).mockResolvedValue({
-    status: 'opened',
-    files: [{ fileName: 'big.bin', bytes: new Uint8Array(12) }],
-  });
+  vi.mocked(openFile).mockResolvedValue(pickedFile('big.bin', new Uint8Array(12)));
   const user = userEvent.setup();
   await user.click(screen.getByRole('button', { name: 'Choose files…' }));
   await user.click(await screen.findByRole('button', { name: 'Upload 1 object' }));
@@ -271,7 +327,8 @@ it('progress is reported per part, in order, and the manifest is not a part', as
     fileName: 'big.bin',
     objectName: 'big.bin',
     renamed: false,
-    bytes: new Uint8Array(12),
+    file: new File([new Uint8Array(12)], 'big.bin', { type: 'application/octet-stream' }),
+    size: 12,
   };
   const progress: { completed: number; total: number; partName: string }[] = [];
 
@@ -315,10 +372,7 @@ it('the upload shows a per-part progress surface while the parts are being writt
   await waitFor(() => {
     expect(listObjects).toHaveBeenCalled();
   });
-  vi.mocked(openFile).mockResolvedValue({
-    status: 'opened',
-    files: [{ fileName: 'big.bin', bytes: new Uint8Array(12) }],
-  });
+  vi.mocked(openFile).mockResolvedValue(pickedFile('big.bin', new Uint8Array(12)));
   const user = userEvent.setup();
   await user.click(screen.getByRole('button', { name: 'Choose files…' }));
   await user.click(await screen.findByRole('button', { name: 'Upload 1 object' }));
@@ -359,10 +413,7 @@ it('a chunked file is protected by its LOGICAL name: the upload refuses until th
   await waitFor(() => {
     expect(listObjects).toHaveBeenCalled();
   });
-  vi.mocked(openFile).mockResolvedValue({
-    status: 'opened',
-    files: [{ fileName: 'Big.BIN', bytes: new Uint8Array(12) }],
-  });
+  vi.mocked(openFile).mockResolvedValue(pickedFile('Big.BIN', new Uint8Array(12)));
   const user = userEvent.setup();
   await user.click(screen.getByRole('button', { name: 'Choose files…' }));
 
@@ -397,10 +448,7 @@ it('overwriting a chunked file writes a NEW GENERATION before the manifest is sw
   await waitFor(() => {
     expect(listObjects).toHaveBeenCalled();
   });
-  vi.mocked(openFile).mockResolvedValue({
-    status: 'opened',
-    files: [{ fileName: 'big.bin', bytes: new Uint8Array(12) }],
-  });
+  vi.mocked(openFile).mockResolvedValue(pickedFile('big.bin', new Uint8Array(12)));
   const user = userEvent.setup();
   await user.click(screen.getByRole('button', { name: 'Choose files…' }));
   await user.click(await screen.findByRole('checkbox'));
@@ -467,10 +515,7 @@ it('an interrupted chunked upload leaves NO visible file, and its parts are repo
   await waitFor(() => {
     expect(listObjects).toHaveBeenCalled();
   });
-  vi.mocked(openFile).mockResolvedValue({
-    status: 'opened',
-    files: [{ fileName: 'big.bin', bytes: new Uint8Array(12) }],
-  });
+  vi.mocked(openFile).mockResolvedValue(pickedFile('big.bin', new Uint8Array(12)));
   const user = userEvent.setup();
   await user.click(screen.getByRole('button', { name: 'Choose files…' }));
   await user.click(await screen.findByRole('button', { name: 'Upload 1 object' }));

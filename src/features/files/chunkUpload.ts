@@ -15,14 +15,13 @@
  *    interrupted write leaves orphan parts and NO visible file.
  *
  * WHERE THE BYTES COME FROM IS AN INJECTED {@link ChunkSource}, not a byte array.
- * `src/lib/openFile.ts` hands the app one `Uint8Array` per picked file (it reads
- * the file whole, and `src/lib/**` is frozen for this slice), so the production
- * caller passes {@link bytesChunkSource} — a ZERO-COPY `subarray` view per part.
- * {@link fileChunkSource} is the same seam over a `File`/`Blob`, reading one part
- * at a time with `slice()`, and it is what the seam is shaped for: the day the
- * open seam can hand a `File` over (instead of reading it whole), the only change
- * is which source the caller constructs. That gap is named in
- * `docs/ARCHITECTURE.md` §4 rather than papered over.
+ * The production source is {@link fileChunkSource}: `src/lib/openFile.ts` now
+ * hands the app a `File` per picked file (ledger row 13) and this path reads ONLY
+ * `file.slice(start, end)` per part, so the whole file is never materialised.
+ * {@link bytesChunkSource} is the same seam over bytes a caller already holds — a
+ * ZERO-COPY `subarray` view per part — and remains for callers/pins that have the
+ * bytes in hand; it is NOT what the production upload uses, because using it would
+ * mean the whole file had already been read into memory.
  *
  * THE PART SIZE IS AN ASSUMPTION ABOUT SERVER CONFIG, so it is a parameter with
  * the service's own default ({@link CHUNK_PART_SIZE}). The frozen `planChunks`
@@ -74,8 +73,9 @@ export function bytesChunkSource(bytes: Uint8Array<ArrayBuffer>): ChunkSource {
 
 /**
  * The source over a `File`/`Blob`: `slice()` reads ONE part, and the browser
- * never holds the whole file for this seam. This is the shape the production
- * caller wants; see the header for why it cannot be used yet.
+ * never holds the whole file for this seam. THIS is the production source
+ * (ledger row 13): `openFile` hands over the `File`, and each part is read from
+ * its own byte range.
  */
 export function fileChunkSource(file: Blob): ChunkSource {
   return {
@@ -232,7 +232,9 @@ export async function uploadChunkedReview(
   options: ChunkedUploadOptions = {},
 ): Promise<ChunkedUploadResult> {
   const partSize = options.partSize ?? CHUNK_PART_SIZE;
-  const source = options.source ?? bytesChunkSource(review.bytes);
+  // The production source reads ONE `slice()` per part: the picked file is never
+  // materialised (ledger row 13).
+  const source = options.source ?? fileChunkSource(review.file);
   const generation = nextChunkGeneration(
     options.previousGeneration ?? null,
     options.drawGeneration,

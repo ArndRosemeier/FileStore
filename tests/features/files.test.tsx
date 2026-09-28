@@ -85,8 +85,20 @@ function entry(name: string, overrides: Partial<ObjectEntry> = {}): ObjectEntry 
   };
 }
 
-function picked(fileName: string, bytes: number[]): { status: 'opened'; files: { fileName: string; bytes: Uint8Array<ArrayBuffer> }[] } {
-  return { status: 'opened', files: [{ fileName, bytes: new Uint8Array(bytes) }] };
+/** The picked `File` the seamed-open hands over, UNREAD (ledger row 13). */
+function pickedFile(fileName: string, bytes: number[]): File {
+  return new File([new Uint8Array(bytes)], fileName, { type: 'application/octet-stream' });
+}
+
+function opened(file: File): { status: 'opened'; files: { fileName: string; file: File; size: number }[] } {
+  return { status: 'opened', files: [{ fileName: file.name, file, size: file.size }] };
+}
+
+function picked(fileName: string, bytes: number[]): {
+  status: 'opened';
+  files: { fileName: string; file: File; size: number }[];
+} {
+  return opened(pickedFile(fileName, bytes));
 }
 
 /**
@@ -175,8 +187,10 @@ it('a listing failure surfaces the service’s own message, inline AND through t
 
 /* -------------------------------------------------------------- the upload */
 
-it('a zero-byte file is refused with a reason BEFORE any request is issued', async () => {
-  vi.mocked(openFile).mockResolvedValue(picked('empty.txt', []));
+it('a zero-byte file is refused from its size, WITHOUT any read and BEFORE any request is issued', async () => {
+  const empty = pickedFile('empty.txt', []);
+  const read = vi.spyOn(empty, 'arrayBuffer');
+  vi.mocked(openFile).mockResolvedValue(opened(empty));
   await openStore();
 
   await chooseFiles();
@@ -185,10 +199,41 @@ it('a zero-byte file is refused with a reason BEFORE any request is issued', asy
     expect(allToasts()).toMatch(/zero bytes/);
   });
   expect(allToasts()).toMatch(/empty\.txt/);
+  // The refusal came from the browser's own `size`: this file was NEVER read,
+  // which is the whole point of the contract change (ledger row 13).
+  expect(read).not.toHaveBeenCalled();
   expect(putObject).not.toHaveBeenCalled();
   // Not even the collision check was allowed to run for a file that cannot be
   // stored at all.
   expect(listObjects).not.toHaveBeenCalled();
+});
+
+it('the single-object path reads the picked file EXACTLY ONCE, at write time', async () => {
+  const file = pickedFile('notes.txt', [1, 2, 3]);
+  const read = vi.spyOn(file, 'arrayBuffer');
+  vi.mocked(openFile).mockResolvedValue(opened(file));
+  await openStore();
+
+  await chooseFiles();
+  expect(await screen.findAllByText('notes.txt')).not.toHaveLength(0);
+  // The review and the collision check ran, and the file was NOT read for them.
+  expect(listObjects).toHaveBeenCalled();
+  expect(read).not.toHaveBeenCalled();
+
+  const user = userEvent.setup();
+  await user.click(screen.getByRole('button', { name: 'Upload 1 object' }));
+
+  await waitFor(() => {
+    expect(putObject).toHaveBeenCalledTimes(1);
+  });
+  // Read once, and only at the write — the bytes the request carried are the
+  // file's own bytes.
+  expect(read).toHaveBeenCalledTimes(1);
+  expect(putObject).toHaveBeenCalledWith(
+    expect.objectContaining({ store: 'files' }),
+    'notes.txt',
+    new Uint8Array([1, 2, 3]),
+  );
 });
 
 it('a name that cannot map is reported as an error and NEVER guessed into an object name', async () => {

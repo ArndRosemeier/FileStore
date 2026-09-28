@@ -98,11 +98,18 @@ function entry(name: string, overrides: Partial<ObjectEntry> = {}): ObjectEntry 
   };
 }
 
+/**
+ * The picked file the open seam now hands over UNREAD (ledger row 13): a real
+ * `File` plus the browser's own `size`, never a pre-read `Uint8Array`.
+ */
 function picked(
   fileName: string,
   bytes: number[],
-): { status: 'opened'; files: { fileName: string; bytes: Uint8Array<ArrayBuffer> }[] } {
-  return { status: 'opened', files: [{ fileName, bytes: new Uint8Array(bytes) }] };
+): { status: 'opened'; files: { fileName: string; file: File; size: number }[] } {
+  const file = new File([new Uint8Array(bytes)], fileName, {
+    type: 'application/octet-stream',
+  });
+  return { status: 'opened', files: [{ fileName, file, size: file.size }] };
 }
 
 let createObjectUrl: MockInstance<(blob: Blob | MediaSource) => string>;
