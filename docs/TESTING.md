@@ -71,6 +71,16 @@ arm proves the pins hold the property. Both are needed.
 | A file name maps to a legal object name, or THROWS | 10 tests, incl. `an ordinary messy name maps to a legal one and REPORTS the change` · `a name carrying a POSIX path is reduced to its basename` · `a 200-character name maps to at most 64 legal characters and keeps its extension` · `a name that CANNOT map throws, and never returns a placeholder` | `tests/lib/name.test.ts` | Arm B below: stop keeping the extension past 64 chars → the 200-character pin RED. |
 | Settings: defaults on empty, round-trip, corrupt REPORTED (not silent), key cleared alone | 13 tests, incl. `invalid JSON is REPORTED as corrupt, with the defaults and a problem — never silent` · `forgetKey clears ONLY the key and leaves baseUrl and store exactly as they were` · `the thrown validation error names the failing FIELD and never the credential value` | `tests/settings/settings.test.ts` | The corruption arms are the two `corrupt` tests; the credential check is `not.toContain(secret)`. |
 
+| The key travels in exactly ONE header and appears in no URL, no message, no log | `the key travels in exactly ONE header and appears in no URL, no log and no error message` | `tests/server/store-client.test.ts` | Send the key in a query string or a second header: the capture loop finds a second header carrying it, or the URL assertion fires. |
+| A non-OK response becomes a typed error carrying the service's own `code` (401/403/404/409/413/429) | `a non-OK %i becomes a typed error carrying the service's own code (%s)` | `tests/server/store-client.test.ts` | Delete `'conflict',` from `SERVER_STORE_API_CODES` — **watched RED (Arm D)**. |
+| A `429` is reported, never retried, and its `Retry-After` is surfaced | `a 429 is REPORTED, never retried, and its Retry-After is surfaced` | `tests/server/store-client.test.ts` | Wrap the request in a retry loop: `calls` length becomes 2. |
+| `listObjects` sends `?prefix=` only when a prefix is given; a matching-nothing prefix is `[]` | `listObjects sends ?prefix= only when a prefix is given, and a legal prefix that matches nothing yields [], not an error` | `tests/server/store-client.test.ts` | Always append `?prefix=`: the unfiltered call's URL assertion fires. |
+| `getObject` refuses a missing/malformed `x-serverstore-sha256`, and zero bytes | `getObject refuses a response missing a valid x-serverstore-sha256, and refuses zero bytes` | `tests/server/store-client.test.ts` | Weaken the digest check to `if (sha256 === null)` — **watched RED (Arm C)**. |
+| `putObject` refuses a zero-byte payload without issuing a request | `putObject refuses a zero-byte payload WITHOUT issuing a request` | `tests/server/store-client.test.ts` | Disable the byte-length guard — **watched RED (Arm B)**; `assert fetch was NOT called`. |
+| A JSON body that does not match the schema is a typed `invalid-response`, never empty data | `a JSON body that does not match the schema yields a typed invalid-response, never empty data` | `tests/server/store-client.test.ts` | `catch` the zod failure and return `[]` instead of throwing. |
+| Exactly ONE module under `src/` calls `fetch(` | `exactly ONE module under src/ calls fetch( — the ServerStore transport` | `tests/architecture/one-fetch.test.ts` | Add a `fetch(` to any other `src/` file: the file list gains a member. Reads `src/` from DISK; never imports. |
+| The `Authorization` header is built in exactly ONE `src/` module | `the Authorization header is BUILT in exactly ONE src/ module` | `tests/architecture/one-fetch.test.ts` | Build the header in a second `src/` module: the file list gains a member. |
+
 ## Raw logs
 
 The gate writes to `.gate-logs/gate.log` (gitignored). The raw log is kept until the
@@ -172,3 +182,53 @@ trees at once.
   — inventing a `cancelled` the browser never sent — is the silent fallback rule 1
   forbids. See `docs/ARCHITECTURE.md` §4.
 
+### 6718f9d — row 7 (the ServerStore transport seam)
+
+- **Gate:** the ONE command, full tier, **exit 0** — cheap (`pnpm run typecheck`)
+  then lint + suite; **5 test files, 30/30 tests**; raw log `.gate-logs/gate.log`
+  (the git COMMON dir's, `/home/administrator/projects/FileStore/.gate-logs/gate.log`,
+  so every worktree shares one log). A measured run under `/usr/bin/time -v`:
+  **peak RSS 696,052 KB**, wall **12.02 s** (the gate itself sets
+  `NODE_OPTIONS=--max-old-space-size=4096`). **The COUNT was read, not just the exit
+  code** (BOARD trap): 5 files for a tree holding 5 test files — the other writer's
+  worktree copies were NOT swept in. My own files hold 28 of the 30 tests
+  (`tests/server/store-errors.test.ts` 8, `tests/server/store-client.test.ts` 18,
+  `tests/architecture/one-fetch.test.ts` 2); the other 2 are the day-1 shell and
+  worktree-isolation pins.
+- **Differential** (the author's own; three injections against the COMMITTED tree,
+  under the shared gate lock, restore from HEAD in a `trap`, every arm's hash
+  printed). Run at the feat commit (`98b3e1e`, rebased to `6718f9d` with the same
+  blobs — re-measured: `git show HEAD:src/server/store-client.ts | sha256sum`
+  equals Arm A exactly). Two arms with identical hashes would be VOID; none are.
+  - **Arm A — baseline, untouched HEAD:** `store-client.ts`
+    `sha256=2d4fedbadd3b9317fa13bb073c4581396f734981a9e6657c21fb6ac9603ca3c8`,
+    `store-errors.ts`
+    `sha256=44ef239979fade30c240b05829859894162db810361d26d3d921aa312574a3ba` →
+    both pin files **PASS** (2 files, **26/26** tests, exit 0).
+  - **Arm B — injection: `if (bytes.length === 0) {` → `if (bytes.length < 0) {`**
+    (the zero-byte guard): `store-client.ts`
+    `sha256=bddcaf162180a12ce5a82bafd9fc8de3d2933f5eb2d12db373d6160c901ac088` — a
+    DIFFERENT hash, so not VOID → **RED** (exit 1, **2 failed | 16 passed**):
+    `putObject refuses a zero-byte payload WITHOUT issuing a request` and
+    `getObject refuses a response missing a valid x-serverstore-sha256, and refuses
+    zero bytes`. The guard is the same literal text in both functions, so one edit
+    disabled both byte-length checks — two distinct pins red is honest evidence
+    that both hold the property, not a wrong-file signal.
+  - **Arm C — injection: digest check weakened to `if (sha256 === null) {`:**
+    `store-client.ts`
+    `sha256=d51d15b65a19393327f1c6880604e7259d04e4cbd088bc99f59b6c2c85a8155a` —
+    DIFFERENT → **RED** (exit 1, **1 failed | 17 passed**): `getObject refuses a
+    response missing a valid x-serverstore-sha256, and refuses zero bytes`.
+  - **Arm D — injection: `'conflict',` deleted from `SERVER_STORE_API_CODES`:**
+    `store-errors.ts`
+    `sha256=eec64c9f625f4f4bf7398461127f3fedd97e87a55c24a08e55a60038a75b0e57` —
+    DIFFERENT → **RED** (exit 1, **1 failed | 17 passed**): `a non-OK 409 becomes a
+    typed error carrying the service's own code (conflict)`. This is exactly the
+    state Imager's ported copy was in — a real `409` reported as `invalid-response`.
+  - **Arm E — restored from HEAD:** both hashes identical to Arm A → both pin files
+    **PASS** (26/26, exit 0). No injection escaped.
+- **COPIES: 1 — checked** (grepped: `fetch(` and `Authorization` across `src/`; each
+  occurs in exactly `src/server/store-client.ts`, pinned by
+  `tests/architecture/one-fetch.test.ts`, which reads the files from disk). The
+  OTHER copy this repo carries is Imager's, across the repo boundary — that is
+  named debt in ledger row 5, not a second seam inside this tree.
