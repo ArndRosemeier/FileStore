@@ -110,6 +110,19 @@ arm proves the pins hold the property. Both are needed.
 | The digest is the PUBLISHED SHA-256, in lowercase hex, for any input | `a known byte string digests to the PUBLISHED SHA-256, in lowercase hex` · `the empty byte string digests to the published empty SHA-256 (hashing is not a size check)` · `any input yields exactly 64 lowercase hex characters — no uppercase, no base64, no padding` | `tests/lib/sha256.test.ts` | Encode with `toString(16)` on the buffer, or hash the text form of the bytes: the published vector REDs. |
 | Sizes and timestamps are deterministic, and a bad value is LOUD or shown as sent | `a byte count reads in binary units, with the service’s own 64 MiB limit legible` · `a size that is not a real byte count is a LOUD refusal, never a plausible 0 B` · `an ISO timestamp reads as the UTC instant the service stored` · `a timestamp that is not a parseable date is shown EXACTLY as sent, never invented` | `tests/lib/format.test.ts` | Use `toLocaleString()` for the timestamp: the UTC assertion REDs on a host in another zone. Return `'0 B'` for a bad size: the `RangeError` pin REDs. |
 
+| The folder tree comes from ONE listing: the files here AND the subfolders below | `one listing produces both the files at the current level and its subfolders` | `tests/features/folders.test.tsx` | **Arm B below**: count a deeper object as a file here → the deeper-object pin RED (11 neighbours green, the marker pins among them). |
+| A marker object is NEVER rendered as a file | `a marker object is never rendered as a file` | `tests/features/folders.test.tsx` | **Arm A below**: push the marker as a file → RED, alone (12 green). |
+| An EMPTY folder (marker only) IS rendered as a folder | `an empty folder (marker only) is rendered as a folder` | `tests/features/folders.test.tsx` | **Arm A leaves it GREEN** — that pairing is what makes Arm A specific rather than a broken file. |
+| A DEEPER object does not appear at the current level | `a deeper object does not appear at the current level` | `tests/features/folders.test.tsx` | **Arm B below**: `folder.length >= current.length + 2` treated as "a file here" → RED at the root, and RED again at `docs`. |
+| The breadcrumb names every ancestor, and clicking one navigates there | `the breadcrumb names every ancestor and clicking one navigates there` | `tests/features/folders.test.tsx` | Arm B reds it too, and honestly so: it navigates THROUGH the folder rows Arm B removed. The crumbs come from `ancestors`, and only the CURRENT crumb is not a control. |
+| New folder writes a marker; an existing folder is refused LOUDLY rather than overwritten | `New folder writes a marker, and an existing folder is refused LOUDLY rather than overwritten` · `a new folder inside a folder writes its marker under that folder’s prefix` | `tests/features/folders.test.tsx` | Delete the `occupants.length > 0` refusal → the second half PUTs over the marker. The marker's bytes are asserted NON-EMPTY because an empty body is `400 invalid_body`. |
+| An upload into a folder shows the FULL object name in the review and writes it there | `an upload into a folder shows the FULL object name in the review and writes it there` | `tests/features/folders.test.tsx` | Drop the `folder` argument from `reviewUploads` → the review shows the file part only and the write lands at the root. |
+| The same file name in two DIFFERENT folders is NOT a collision; the same name in the SAME folder is | `the same file name in two different folders is NOT a collision, but the same name in the SAME folder is` | `tests/features/folders.test.tsx` | Same injection: the collision is compared on the FULL object name, so ignoring the folder loses the same-folder collision and invents a cross-folder one. |
+| An upload into a folder with no room left in the 1024-character budget is refused before any request | `an upload into a folder whose full name would exceed the 1024 bound is refused with a reason before any request` | `tests/features/folders.test.tsx` | The refusal is `toObjectName`'s folder budget; the pin asserts BOTH `putObject` and `listObjects` were not called. |
+| Deleting a folder confirms with the COUNT, and a partial failure reports what remains rather than claiming success | `deleting a folder confirms with the COUNT, and a partial failure reports what remains instead of claiming success` | `tests/features/folders.test.tsx` | **Arm D below**: remove the stop → the loop keeps deleting and the toast claims more than happened → RED. |
+| A `429` while deleting a folder is reported with the wait and STOPS | `a 429 while deleting a folder is reported with the wait and stops` | `tests/features/folders.test.tsx` | **Arm D below**: the second `DELETE` is issued → RED on the call count, and the wait text rides the ONE `failureDetail` composition. |
+| Download and delete of a FILE inside a folder use the FULL object name | `downloading or deleting a file inside a folder uses the FULL object name` | `tests/features/folders.test.tsx` | **Arm C below**: address the file part instead → RED, alone (12 green). |
+
 ## Raw logs
 
 The gate writes to `.gate-logs/gate.log` (gitignored). The raw log is kept until the
@@ -557,3 +570,95 @@ likely to be brand new and therefore wrong.
   `collapseDashes` alone, so the pins ARE the guard; and a foreign client can `PUT` a
   legal name containing `--`, which this app will read as a nested path, because the
   convention is not enforceable at the service. See `docs/ARCHITECTURE.md` §4.
+
+### ef7ce5e — row 10, slice 2 (the folder tree: navigate, create, upload-into, delete)
+
+- **Gate:** the ONE command, `bash scripts/gate.sh` (cheap `pnpm run typecheck`, then
+  lint + the whole suite), run **in-turn, foreground and UN-PIPED**, output redirected
+  to a file — **exit 0**. Counts read from the raw log, not inferred from the exit code
+  (the worktree-isolation TRAP): **18 test files, 158 passed / 158 tests**. The baseline
+  on the base (`f66ff72`) was **17 files / 145 tests**, so this landing adds **1 test
+  file and 13 pins**; every one of the 17 original files is still collected and green.
+  Peak RSS **787,232 KB**, wall **24.75 s** (`/usr/bin/time -v`; the gate itself sets
+  `NODE_OPTIONS=--max-old-space-size=4096`). Raw log `.gate-logs/gate.log` — the git
+  COMMON dir's, so every worktree shares one log; a copy is kept at
+  `worktrees/folder-ui/.gate-logs/gate-rebased.log`. No browser was started (every pin
+  is jsdom), so no browser tree was owed a kill: `ps -eo comm= |
+  grep -cE '^(chrome|chromium|headless_shell|playwright)$'` → `0`.
+- **Rebase before the docs, deliberately:** `origin/main` advanced `f66ff72` → `57be567`
+  (the dispatcher's `docs/BOARD.md` in-flight record) while this slice was written, so
+  the branch was rebased onto it BEFORE the docs commit. The source+tests tip is
+  **`ef7ce5e`** — the sha these docs name — and it is an ancestor of the pushed branch,
+  not a commit a later rebase would replace. The gate above ran on exactly that tree.
+  The arm baselines printed AFTER the rebase are identical to the pre-rebase ones
+  (`folders.ts` `4272134b…`, `folderOps.ts` `6c1f170c…`, `FileBrowser.tsx` `d0a43440…`),
+  which is the evidence that the rebase changed only the parent.
+- **The only existing pin changed, and why:** exactly ONE, in
+  `tests/features/files.test.tsx`: `2 objects in the store` became
+  `2 objects in this folder`. A folder view has to say what THIS LEVEL holds — at a
+  subfolder the old sentence would be false, and at the root it would count subfolders'
+  contents as if they were here. Every other existing pin is unmodified and green; the
+  count (145 + 13 = 158, zero failures) is the evidence.
+- **Differential** (my own; **FOUR** arms against the COMMITTED tree `ef7ce5e`, restore
+  from HEAD inside a `trap`, every arm's sha256 printed BEFORE and AFTER, and every
+  injection asserting its anchor matched exactly ONCE — slice 1 lost a whole arm to a
+  silent no-op, so an unchanged hash would have been re-done rather than reported). No
+  two arms share a hash, so none is a VOID probe.
+  - **Arm A — a marker is also pushed as a file.** `src/features/files/folders.ts`
+    `sha256=4272134bf461f70a8fbb56c27aaff68a37e99ceb78e990848022a49c58ac38b0` →
+    injected `sha256=b905744b511bff270c7609bea8621cad3c5d7edbf87b49f889827fae7c3f54f2` —
+    DIFFERENT → **RED** (exit 1, **1 failed | 12 passed**):
+    `a marker object is never rendered as a file` → `AssertionError: expected <code
+    class="break-all" … title="docs--">docs--</code> to be null`. The twelve neighbours
+    stayed green, `an empty folder (marker only) is rendered as a folder` among them, so
+    the red is the pin's own property rather than a broken file.
+  - **Arm B — an object two levels down counts as a file here.** `folders.ts`
+    `4272134b…` → `sha256=a93f32ad20ab6fd63819afd7e22c04d480cfabcfc8c8ec48182ec8a302d343c6` —
+    DIFFERENT → **RED** (exit 1, **2 failed | 11 passed**):
+    `a deeper object does not appear at the current level` (the root shows no `docs` row
+    to navigate into) and — **honestly coupled, not hidden** —
+    `the breadcrumb names every ancestor and clicking one navigates there`, which walks
+    through exactly the rows this injection removed. The marker, upload and delete pins
+    stayed green.
+  - **Arm C — the file actions address the FILE part, not the full object name.**
+    `src/features/files/FileBrowser.tsx`
+    `sha256=d0a43440af98e4cba1567dfe4863ab09b75c9c8ebd089d28793d255336e9635d` →
+    `sha256=4941fddff32a3e1430eb6dcb71d1ef4ae62a5aa691a92b623317d1c0e5c3a1af` — DIFFERENT →
+    **RED** (exit 1, **1 failed | 12 passed**):
+    `downloading or deleting a file inside a folder uses the FULL object name` →
+    `getObject` was called with `report.txt` instead of `docs--report.txt`. Alone.
+  - **Arm D — the delete loop stops nowhere.** `src/features/files/folderOps.ts`
+    `sha256=6c1f170c3b6d216af5a850e03c7f40c97ae4add93a27be8d6522664c88dcb33e` →
+    `sha256=25f9e6c2815a6e02294976a5955c98701cf75f72b62eb74651b132904a0a9232` — DIFFERENT →
+    **RED** (exit 1, **2 failed | 11 passed**):
+    `deleting a folder confirms with the COUNT, and a partial failure reports what
+    remains instead of claiming success` (`expected 'Deleted 2 objects under “docs”;
+    1 obj…' to match /Deleted 1 object/`) and
+    `a 429 while deleting a folder is reported with the wait and stops`
+    (`expected "vi.fn()" to be called 1 times, but got 2 times`).
+  - **Restore:** all three files returned to their Arm-A hashes (`4272134b…`,
+    `6c1f170c…`, `d0a43440…`), `git status --porcelain` clean, and the **full gate was
+    re-run on the restored tree — exit 0, 18 / 158 again**. The restore is the gate, not
+    a claim.
+- **COPIES: 1 — checked, no duplication** (grepped: `FOLDER_SEPARATOR` and the literal
+  `--` — ONE definition, `src/lib/folder.ts:44`; `folders.ts`, `folderOps.ts`,
+  `FileBrowser.tsx`, `FolderPanel.tsx`, `FolderBreadcrumb.tsx`, `upload.ts` and
+  `useObjects.ts` all import the convention and NONE of them splits on `--` or joins a
+  name inline; `isFolderMarkerName` — ONE predicate, imported, never restated as
+  `endsWith('--')`; `folderPrefix` — ONE `?prefix=` computation, reused by `useObjects`
+  and `UploadPanel`; `toObjectName` — still ONE mapping seam, and the ONE folder-aware
+  call site is `upload.ts#reviewUploads`; `deleteObject` — ONE loop,
+  `folderOps.ts#deleteFolderObjects`, and no second bulk path exists; `objectsUnder` —
+  ONE "what is under this folder" predicate, refusing the root). The one thing this
+  slice FOLDED is the tree derivation: before it, the files flow listed the store and
+  rendered it flat; now ONE pure module turns ONE listing into the files at this level,
+  the subfolders below, and their counts, and the browser renders that and nothing else.
+- **What is NOT pinned, and is debt rather than a papered-over gap:** deep paths cannot
+  be driven against the LIVE service yet — its running process predates the 1024 bump
+  and still enforces 64, so no `?prefix=`, marker or full name longer than 64 characters
+  has been exercised end to end (`docs/ARCHITECTURE.md` §4), and every pin here is
+  jsdom over a MOCKED transport; the create/delete existence check is a read-then-write
+  UX guard, not a concurrency guard (the API has no conditional `PUT`); a folder row's
+  count is a tally of the last listing, and the service documents no order or aggregate;
+  the first upload into a folder leaves its marker in place; and move/rename stays
+  DEFERRED (3N requests against the 600/min limit).
