@@ -134,7 +134,7 @@ it('the listing shows the count and each object’s name, size, creation time an
   writeSettings(CONFIGURED);
   render(<App />);
 
-  expect(await screen.findByText('2 objects in the store')).toBeInTheDocument();
+  expect(await screen.findByText('2 objects in this folder')).toBeInTheDocument();
   expect(screen.getByText('report.txt')).toBeInTheDocument();
   expect(screen.getByText('12 B')).toBeInTheDocument();
   expect(screen.getByText('2026-09-28 14:27 UTC')).toBeInTheDocument();

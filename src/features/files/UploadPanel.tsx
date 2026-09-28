@@ -9,8 +9,10 @@
  *      NOTHING (a cancel is not an error).
  *   2. `reviewUploads` — zero-byte files and unmappable names are refused HERE,
  *      with a reason, BEFORE any request is issued. Nothing is guessed.
- *   3. `listObjects` — ONE read, to learn which of the reviewed object names
- *      already exist. A write has not happened yet.
+ *   3. `listObjects` — ONE read, of the CURRENT FOLDER's subtree (`?prefix=`),
+ *      to learn which of the reviewed object names already exist. A write has not
+ *      happened yet. Because the mapping and the comparison are both on the FULL
+ *      object name, the same file name in a DIFFERENT folder is not a collision.
  *   4. the owner confirms each collision individually; `unconfirmedOverwrites` is
  *      the gate that then refuses the whole batch. This is ledger row 4: `PUT` is
  *      an unconditional overwrite, so an unconfirmed clobber is data loss.
@@ -31,6 +33,7 @@ import {
   unconfirmedOverwrites,
   type UploadReview,
 } from '@/features/files/upload';
+import { folderPrefix, type FolderPath } from '@/lib/folder';
 import { formatObjectCount } from '@/lib/format';
 import { openFile, type OpenOutcome } from '@/lib/openFile';
 import { toastError, toastSuccess } from '@/lib/toast';
@@ -38,6 +41,8 @@ import { listObjects, putObject, type StoreTarget } from '@/server/store-client'
 
 export interface UploadPanelProps {
   target: StoreTarget;
+  /** The folder being uploaded into; the root by default. */
+  folder: FolderPath;
   /** Called after at least one object was written, so the listing can refresh. */
   onUploaded: () => void;
 }
@@ -50,7 +55,7 @@ const OPEN_REQUEST = {
   multiple: true,
 };
 
-export function UploadPanel({ target, onUploaded }: UploadPanelProps): React.JSX.Element {
+export function UploadPanel({ target, folder, onUploaded }: UploadPanelProps): React.JSX.Element {
   const [reviews, setReviews] = useState<UploadReview[]>([]);
   const [collisions, setCollisions] = useState<ReadonlySet<string>>(new Set());
   const [confirmed, setConfirmed] = useState<ReadonlySet<string>>(new Set());
@@ -76,16 +81,21 @@ export function UploadPanel({ target, onUploaded }: UploadPanelProps): React.JSX
     }
     if (outcome.status === 'cancelled') return;
 
-    const { accepted, refused } = reviewUploads(outcome.files);
+    const { accepted, refused } = reviewUploads(outcome.files, folder);
     for (const refusal of refused) {
       // A refusal is an error the owner must see, and it names the file and the
-      // reason. It was decided BEFORE any request existed.
+      // reason (including an unmappable name and a folder with no room left). It
+      // was decided BEFORE any request existed.
       toastError(new Error(refusal.message));
     }
     if (accepted.length === 0) return;
 
     try {
-      const objects = await listObjects(target);
+      // Only this folder's subtree can hold a collision: the comparison is on the
+      // FULL object name, so a same-named file in another folder cannot appear
+      // here at all.
+      const prefix = folderPrefix(folder);
+      const objects = await listObjects(target, prefix === '' ? undefined : prefix);
       setReviews(accepted);
       setCollisions(new Set(collidingObjectNames(accepted, objects)));
       setConfirmed(new Set());

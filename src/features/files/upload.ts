@@ -19,8 +19,19 @@
  * The collision test is deliberately its own step: the caller lists the store,
  * hands the names to {@link collidingObjectNames}, and {@link unconfirmedOverwrites}
  * is the gate the upload flow must pass before it writes anything.
+ *
+ * FOLDERS (ledger row 10, slice 2): `reviewUploads` takes the folder being viewed
+ * and maps each file with `toObjectName(fileName, folder)`, so
+ * {@link UploadReview.objectName} is the FULL store name the file will be written
+ * under (`docs--report.pdf`) and the review can show it. `changed` still describes
+ * the FILE part only — the folder was the owner's explicit choice, not a rename.
+ * A folder that leaves no room in the shared 1024-character budget makes
+ * `toObjectName` THROW, so that file is refused here with the seam's own reason,
+ * before any request exists. With no folder the behaviour is exactly the row-9
+ * root case.
  */
 
+import type { FolderPath } from '@/lib/folder';
 import { toObjectName } from '@/lib/name';
 import type { OpenedFile } from '@/lib/openFile';
 import type { ObjectEntry } from '@/server/store-client';
@@ -29,9 +40,9 @@ import type { ObjectEntry } from '@/server/store-client';
 export interface UploadReview {
   /** The name on the owner's disk, shown so the mapping is never silent. */
   fileName: string;
-  /** The ServerStore-legal name it will be stored under. */
+  /** The FULL ServerStore object name — folder path included — it will be stored under. */
   objectName: string;
-  /** True when the two differ — the owner is about to see a rename. */
+  /** True when the mapped FILE part differs from `fileName` — the owner's rename. */
   renamed: boolean;
   /** Every byte, ready to be PUT. */
   bytes: Uint8Array<ArrayBuffer>;
@@ -54,8 +65,16 @@ export function zeroByteRefusal(fileName: string): string {
 /**
  * Split the picked files into what can be uploaded and what cannot — WITHOUT
  * issuing any request. The caller shows the refusals and continues with the rest.
+ *
+ * `folder` is the folder being viewed; every accepted object name is the FULL
+ * store name inside it. Everything that cannot be mapped — including a folder
+ * path with no room left in the 1024-character budget — is refused with the name
+ * seam's own reason, and nothing is sent.
  */
-export function reviewUploads(files: readonly OpenedFile[]): {
+export function reviewUploads(
+  files: readonly OpenedFile[],
+  folder: FolderPath = [],
+): {
   accepted: UploadReview[];
   refused: UploadRefusal[];
 } {
@@ -68,7 +87,7 @@ export function reviewUploads(files: readonly OpenedFile[]): {
       continue;
     }
     try {
-      const mapping = toObjectName(file.fileName);
+      const mapping = toObjectName(file.fileName, folder);
       accepted.push({
         fileName: file.fileName,
         objectName: mapping.objectName,
