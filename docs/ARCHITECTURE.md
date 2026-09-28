@@ -12,7 +12,7 @@ Dependencies point **downward only**. A lower layer never imports an upper one.
 | --- | --- | --- |
 | **UI** — `src/App.tsx`, `src/features/**` | React components and the flows (settings, upload, list, retrieve). Owns user-visible copy and confirmations. | everything below |
 | **App services** — `src/settings/**`, `src/lib/toast.ts`, `src/app/**` | The app's own state (settings, the proven connection) and its ONE error/notification surface. | `lib/`, `server/` |
-| **Seams** — `src/server/**`, `src/lib/name.ts`, `src/lib/saveFile.ts`, `src/lib/openFile.ts`, `src/lib/sha256.ts`, `src/lib/format.ts` | The ONE place each external boundary is spoken to (ServerStore's HTTP API, the object-name mapping, the browser's save and open dialogs, the digest algorithm) — plus the pure, deterministic display formatters. | nothing above; `zod` and the platform only |
+| **Seams** — `src/server/**`, `src/lib/name.ts`, `src/lib/folder.ts`, `src/lib/saveFile.ts`, `src/lib/openFile.ts`, `src/lib/sha256.ts`, `src/lib/format.ts` | The ONE place each external boundary is spoken to (ServerStore's HTTP API, the object-name mapping, the folder naming convention, the browser's save and open dialogs, the digest algorithm) — plus the pure, deterministic display formatters. | nothing above; `zod` and the platform only |
 
 The rule that makes this map worth having: **the UI never calls `fetch`, never reads
 `settings.key`, never builds an object name, and never composes its own error text.**
@@ -22,7 +22,8 @@ Each of those has exactly one home below it.
 
 | Seam | The ONE way | Where | Notes |
 | --- | --- | --- | --- |
-| The app's name | the `served` state | [src/lib/name.ts](src/lib/name.ts) | **LANDED ad5c839** — `toObjectName` (line 146), `OBJECT_NAME_PATTERN` (44), `ObjectNameMappingError` (63). Real file name ↔ a ServerStore-legal object name (`[a-z0-9][a-z0-9._-]{0,63}`). The mapping is shown to the owner before an upload (`changed`); a name that cannot map legally is a loud refusal, never a guess. |
+| The app's name | the `served` state | [src/lib/name.ts](src/lib/name.ts) | **LANDED ad5c839, bound MIRRORED forward at 178a0dc (ledger row 10)** — `toObjectName` (L214), `OBJECT_NAME_PATTERN` (L73), `OBJECT_NAME_MAX_LENGTH` (L55), `ObjectNameMappingError` (L92). Real file name ↔ a ServerStore-legal object name (`[a-z0-9][a-z0-9._-]{0,1023}`). The bound is a MIRROR of `~/projects/ServerStore/src/core/validate.ts` (`NAME_MAX_LENGTH`, commit `26f9e46`), and the source is named in the module so the next reader can CHECK it. `toObjectName(fileName, folder?)` takes an optional `FolderPath` (L214): with none its result and `changed` are exactly the old root behaviour (the row-9 call site passes one argument), with a folder the name is folder + separator + mapped file part and the ONE 1024-character budget is shared between them. `changed` always describes the FILE part. The mapping is shown to the owner before an upload; a name that cannot map legally is a loud refusal, never a guess. |
+| The folder convention | `src/lib/folder.ts` | [src/lib/folder.ts](src/lib/folder.ts) | **LANDED 178a0dc (ledger row 10, slice 1).** `FOLDER_SEPARATOR` (L44), `FolderPath` (L47), `FolderPathError` (L54), `isFolderSegment` (L73), `parseFolderPath` (L114), `formatFolderPath` (L122), `folderPrefix` (L135), `folderMarkerName` (L151), `isFolderMarkerName` (L166), `joinFolder` (L181), `splitObjectName` (L205), `parentFolder` (L222), `ancestors` (L231), `folderDepth` (L238); 240 lines. A folder is a naming convention over the one flat object list, NOT storage: ServerStore has no directories, no metadata and no rename route, and its only listing filter is `?prefix=`. `--` separates levels and a trailing `--` marks an EMPTY folder, both UNPRODUCIBLE by `toObjectName` because `collapseDashes` collapses runs of `-` — which is what makes `splitObjectName`/`joinFolder` exact inverses at any depth. A segment is a legal store name that also must not contain the separator or end in `-`; anything else THROWS `FolderPathError` rather than being folded into a different folder. |
 | The app's settings | `src/settings/settings.ts` | [src/settings/settings.ts](src/settings/settings.ts) | **LANDED ad5c839** — `readSettings` (133), `writeSettings` (147), `forgetKey` (166), `DEFAULT_SETTINGS` (55). The ONE persisted state: `baseUrl`, `store`, `key`. `localStorage`, zod-validated on read; a corrupt stored value is reported as `{corrupt, problem}`, never silently replaced by defaults — and the key never enters a message. |
 | The app's error surface | `src/lib/toast.ts` | [src/lib/toast.ts](src/lib/toast.ts) | **LANDED 80d7186, corrected forward 8d131d5** — `toastError` (136), `errorMessage` (131), `errorText` (119), `redactCredential` (83), `ToastErrorOptions.credential` (55), `REDACTED_CREDENTIAL` (52), `ERROR_TOAST_DURATION_MS` (49); 147 lines. The ONE place a failure becomes something the owner can see: a real error carries `duration: Infinity` (never auto-dismisses) and a cancellation never reaches it. `errorMessage` is the ONE composition the toast AND every inline failure render share, and it redacts every credential the app KNOWS ABOUT from arbitrary text — the STORED key always, plus the credential a caller says it actually SENT (`credential`), which is how the Settings panel's probe of an unsaved DRAFT key is covered; candidates are redacted longest-first, so a stored key that is a prefix of the one in use cannot leave the longer credential's remainder behind. A toast is rendered text, and the service's `message` is not trusted. |
 | The proven connection | `useStore` | [src/app/useStore.ts](src/app/useStore.ts) | **LANDED 80d7186** — `useStore` (67), `storeTargetFrom` (51), `StoreConnection` (40); 101 lines. `unconfigured` (no key — an honest first run, NOT an error) · `connecting` · `ready` (carrying `WhoAmI`) · `failed` (carrying the error). The key is PROVEN with `whoami`, never assumed from `healthz` (which needs no key at all), and nothing throws into the shell. `storeTargetFrom` is the ONE place the three settings become a `StoreTarget`. |
@@ -125,3 +126,22 @@ Each of those has exactly one home below it.
   probes the DRAFT values, and the shell's connection state re-probes only when the
   settings change; a transient failure leaves the shell in `failed` until the owner
   saves or tests again (there is no retry control on the banner).
+- **The LIVE ServerStore service is STALE, so the 1024-character bound is not
+  actually live.** The running process started before ServerStore's `26f9e46`, so
+  it still enforces 64 characters (measured 2026-09-28; `docs/BOARD.md`). Every pin
+  in ledger row 10 is therefore **unit-level**: no name or `?prefix=` longer than
+  64 characters has been exercised end to end, and a folder whose full name
+  exceeds 64 will be refused by the live process until an operator restarts it.
+  That restart is a ServerStore/operator step, never this app's.
+- **Folder move/rename is not implemented, and cannot be cheap.** The API has no
+  rename and no copy route, so moving a folder is `GET` + `PUT` + `DELETE` per
+  file — **3N requests** against the service's **600 requests/minute/client**
+  limit, i.e. a ~200-file folder move IS the rate limit, and a `429` must be
+  honoured by waiting, never retried. v1 (slice 2) is create / navigate /
+  upload-into / delete-folder (N `DELETE`s); move/rename is a separate,
+  explicitly-warned operation or deferred.
+- **The folder convention is a CONVENTION, not an enforced boundary.** Another
+  ServerStore client can `PUT` a legal name containing `--` and this app reads it
+  as a nested path. What is pinned is that THIS app's mapper can never PRODUCE one
+  (the reserved-separator property); a foreign name is interpreted by the
+  convention, not validated against an owner's intent.

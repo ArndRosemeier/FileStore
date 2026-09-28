@@ -68,7 +68,9 @@ arm proves the pins hold the property. Both are needed.
 | The suite collects NOTHING from a writer worktree, and keeps vitest's default excludes | `the suite never collects tests from a writer worktree, and keeps the default excludes` | `tests/architecture/worktree-isolation.test.ts` | Delete `'**/worktrees/**'` from `test.exclude` in `vite.config.ts` — watched RED, arms below. |
 | The save seam's branch matrix: picker used; a cancel is silent and free; a real failure is loud; the anchor is the fallback | 9 tests, incl. `a present picker is used: suggested name, MIME type, bytes written and closed` · `a cancelled picker is the owner changing his mind: silent, and nothing was built` · `a real failure keeps its own reason — the caller must surface it loudly` · `an absent picker falls back to the anchor download with the suggested name` | `tests/lib/saveFile.test.ts` | Arm A below: build the bytes BEFORE the picker → the cancel-cost pin and the ordering pin both RED. |
 | The open seam's branch matrix, MULTIPLE files, and the input fallback | 13 tests, incl. `several picked files all come back, in the order they were chosen` · `a cancelled picker is the owner changing his mind: silent` · `dismissing the input dialog is a SILENT cancel and removes the element` · `choosing files through the input yields every name and every byte, in order` | `tests/lib/openFile.test.ts` | `multiple` is forwarded to BOTH branches, pinned; the pending-on-old-browser case has no pin because it has no signal to pin (see the debt row). |
-| A file name maps to a legal object name, or THROWS | 10 tests, incl. `an ordinary messy name maps to a legal one and REPORTS the change` · `a name carrying a POSIX path is reduced to its basename` · `a 200-character name maps to at most 64 legal characters and keeps its extension` · `a name that CANNOT map throws, and never returns a placeholder` | `tests/lib/name.test.ts` | Arm B below: stop keeping the extension past 64 chars → the 200-character pin RED. |
+| A file name maps to a legal object name, or THROWS (and the bound is the server's landed 1024) | 17 tests, incl. `OBJECT_NAME_MAX_LENGTH is 1024 and the pattern accepts exactly the server’s landed rule at both edges` · `an ordinary messy name maps to a legal one and REPORTS the change` · `a 1200-character name maps to at most 1024 legal characters and keeps its extension` · `an extension too long for the whole 1024-character budget is dropped, never half-kept` · `a name that CANNOT map throws, and never returns a placeholder` | `tests/lib/name.test.ts` | **Arm B below (row 10):** under-count the folder's characters → the folder-aware truncation pin RED. The old `a 200-character name …64…` arm (row 8) is retired with its pin, which was rewritten to the new bound. |
+| A folder is a naming convention with an exact inverse, and an illegal path is REFUSED | 10 tests, incl. `a mapped file name can NEVER contain the folder separator (the reserved-separator property)` · `the empty-folder marker name can never be produced by mapping a file name` · `parseFolderPath and formatFolderPath are exact inverses, and '' is the root` · `a nested path round-trips: joinFolder(['docs','reports'], 'report.pdf') splits back to exactly that folder and file part` · `folderPrefix returns a value that is itself a LEGAL object-name prefix` · `folderMarkerName is a legal object name and ends with the separator` · `ancestors returns the breadcrumb root-first, and parentFolder of the root is the root` · `an illegal folder segment is REFUSED loudly rather than sanitised into a different folder` | `tests/lib/folder.test.ts` | **Arm A below:** stop collapsing runs of `-` → the reserved-separator pin RED (9 neighbours green). **Arm C below:** weaken `isFolderSegment` to plain name legality → the segment-refusal and marker pins RED (8 neighbours green). |
+| Mapping into a folder keeps the full name legal and `changed` describing the FILE part only | ``mapping into a folder returns the FULL store name and keeps `changed` describing the FILE name only`` · `a file name longer than the bound maps into a folder to a legal name of at most the bound, keeping its extension` · `toObjectName(fileName) with no folder behaves EXACTLY as before — the row-9 call site is untouched` · `mapping into an ILLEGAL folder segment throws ObjectNameMappingError rather than guessing a folder` | `tests/lib/name.test.ts` | **Arm B below:** under-count the folder's characters; the folder-aware truncation pin RED while the root-behaviour pin beside it stays green. |
 | Settings: defaults on empty, round-trip, corrupt REPORTED (not silent), key cleared alone | 13 tests, incl. `invalid JSON is REPORTED as corrupt, with the defaults and a problem — never silent` · `forgetKey clears ONLY the key and leaves baseUrl and store exactly as they were` · `the thrown validation error names the failing FIELD and never the credential value` | `tests/settings/settings.test.ts` | The corruption arms are the two `corrupt` tests; the credential check is `not.toContain(secret)`. |
 
 | The key travels in exactly ONE header and appears in no URL, no message, no log | `the key travels in exactly ONE header and appears in no URL, no log and no error message` | `tests/server/store-client.test.ts` | Send the key in a query string or a second header: the capture loop finds a second header carrying it, or the URL assertion fires. |
@@ -473,3 +475,85 @@ likely to be brand new and therefore wrong.
   server-side echo of a DIFFERENT key) is out of its reach. That is why the seams below
   must never format a key into a message in the first place; this surface is the last
   line, not the first.
+
+### 178a0dc — row 10, slice 1 (the folder-path seam and the 1024 name bound)
+
+- **Gate:** the ONE command, `bash scripts/gate.sh` (cheap `pnpm run typecheck`, then
+  lint + the whole suite), run **in-turn and UN-PIPED** with output redirected to a file
+  — **exit 0**. Counts read from the raw log, not inferred from the exit code (the
+  worktree-isolation TRAP): **17 test files, 145 passed / 145 tests**. The baseline on
+  the rebased base (`80e8a5a`) is **16 files / 128 tests**, so this landing adds **1 test
+  file and 17 pins** (`tests/lib/folder.test.ts` 10; `tests/lib/name.test.ts` 10 → 17,
+  i.e. +7). Peak RSS **776,440 KB**, wall **23.33 s** (`/usr/bin/time -v`; the gate
+  itself sets `NODE_OPTIONS=--max-old-space-size=4096`). Raw log:
+  `/home/administrator/projects/FileStore/.gate-logs/gate.log` — the git COMMON dir's, so
+  every worktree shares one log. No browser was started (every pin is jsdom), so no
+  browser tree was owed a kill.
+- **Rebase before the docs, deliberately:** `origin/main` advanced from `0ebaaf9` to
+  `80e8a5a` (a `docs/BOARD.md` commit) while this slice was written, so the branch was
+  rebased onto it BEFORE the docs commit. The source+tests tip is `178a0dc` — the sha
+  the docs name — and it is an ancestor of the pushed branch, not a commit a later
+  rebase would replace.
+- **The only existing pins changed, and why:** exactly TWO, both because they encoded
+  the old 64-character bound. (1) the row-8 pin `a 200-character name maps to at most 64
+  legal characters and keeps its extension` became `a 1200-character name maps to at
+  most 1024 legal characters and keeps its extension` — under the new bound a
+  200-character name is not truncated at all, so the old fixture had stopped exercising
+  the truncation it was named for. (2) `an extension too long for the whole budget is
+  dropped, never half-kept` became `an extension too long for the whole 1024-character
+  budget is dropped, never half-kept`, its 80-character fixture widened to 1100 and its
+  hard-coded `repeat(59)` derivation replaced by `OBJECT_NAME_MAX_LENGTH`. Both test
+  NAMES now carry the bound. Every other existing pin is unmodified and green — the
+  count (128 + 17 = 145, zero failures) is the evidence.
+- **Differential** (my own; three arms against the COMMITTED tree `178a0dc`, restore
+  from HEAD inside a `trap`, every arm's sha256 printed BEFORE and AFTER). No two arms
+  share a hash, so none is a VOID probe. The scratch harness lived inside the writer
+  worktree and was deleted before the report.
+  - **Arm A — injection: `collapseDashes` stops collapsing.** `src/lib/name.ts`
+    `sha256=cc7c45490f5b41f49f0efa5d658ad1bc813054221c948e31f6885140c256b62e` →
+    `return value.replace(/-+/g, '-')` changed to `return value` →
+    `sha256=28e186d2628ac55b48886f07c64a593eefd01691320ec52771bbec3ad46d6d0e` — DIFFERENT,
+    so not VOID → `tests/lib/folder.test.ts` **RED** (exit 1, **1 failed | 9 passed**):
+    `a mapped file name can NEVER contain the folder separator (the reserved-separator
+    property)`. The nine neighbours in that file stayed green, so the red is the pin's
+    own property and not a broken harness.
+  - **Arm B — injection: the folder's characters are left out of the name budget.**
+    `src/lib/name.ts` `cc7c4549…` → `return cost;` changed to
+    `return cost - FOLDER_SEPARATOR.length;` →
+    `sha256=d7e7a4ed84d50590435c3d4a5b3cb7a2899187e4c42b56f7338c6717049ef45f` — DIFFERENT →
+    `tests/lib/name.test.ts` **RED** (exit 1, **1 failed | 16 passed**): `a file name
+    longer than the bound maps into a folder to a legal name of at most the bound,
+    keeping its extension` — the full name overran 1024 and `joinFolder` refused it
+    loudly. The 16 neighbours, including `toObjectName(fileName) with no folder behaves
+    EXACTLY as before — the row-9 call site is untouched`, stayed green.
+  - **Arm C — injection: `isFolderSegment` weakened to plain name legality.**
+    `src/lib/folder.ts`
+    `sha256=1461792c022d584343266c9da90e870f688e7df8a899b96006d3a0e9dc853375` → the
+    `&& !value.includes(FOLDER_SEPARATOR) && !value.endsWith('-')` arms removed →
+    `sha256=eebe2a5edf6cc825f80a92ad9d333130da057df13c701c52228439fb9a7ae39c` — DIFFERENT →
+    `tests/lib/folder.test.ts` **RED** (exit 1, **2 failed | 8 passed**): `an illegal
+    folder segment is REFUSED loudly rather than sanitised into a different folder` and
+    `folderMarkerName is a legal object name and ends with the separator` (the marker
+    pin's `isFolderMarkerName('docs---') === false` arm rests on the same segment rule).
+    Both reds guard the one rule the injection broke; the 8 pins for the inverse, the
+    prefix, the marker string and the breadcrumb stayed green.
+  - **Restore:** all three arms returned their file to its Arm-A hash
+    (`name.ts` = `cc7c4549…`, `folder.ts` = `1461792c…`), `git status --short` clean, and
+    `git show HEAD:<file> | sha256sum` matches each restored file. No browser was started
+    (`ps -eo comm= | grep -cE '^(chrome|chromium|headless_shell|playwright)$'` → `0`).
+- **COPIES: 1 — checked, no duplication** (grepped: `FOLDER_SEPARATOR` — ONE definition,
+  `src/lib/folder.ts:44`, imported by `src/lib/name.ts` rather than restated as `'--'`;
+  `toObjectName` — ONE call site, `src/features/files/upload.ts:71`, still one argument;
+  `OBJECT_NAME_MAX_LENGTH` — ONE mirror, `src/lib/name.ts:55`, tied to the pattern
+  literal at `:73` by the both-edges pin; `parseFolderPath`/`joinFolder` — the ONE path
+  validation and the ONE name composition, reused by `folderPrefix`, `folderMarkerName`
+  and `splitObjectName`). The one thing this slice FOLDED is the folder convention
+  itself: without `src/lib/folder.ts` the separator, the marker rule and the prefix
+  arithmetic would live in the mapper and, in slice 2, in the UI.
+- **What is NOT pinned, and is debt rather than a papered-over gap:** every pin here is
+  **unit-level**, because the LIVE ServerStore process is stale and still enforces 64
+  characters — no live name or `?prefix=` longer than 64 has been exercised (the
+  dispatcher measured the stale pid on 2026-09-28). The `--` reservation rests on
+  `collapseDashes` alone, so the pins ARE the guard; and a foreign client can `PUT` a
+  legal name containing `--`, which this app will read as a nested path, because the
+  convention is not enforceable at the service. See `docs/ARCHITECTURE.md` §4.
