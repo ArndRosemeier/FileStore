@@ -72,6 +72,25 @@ export default defineConfig(({ mode }) => {
       environment: 'jsdom',
       setupFiles: ['tests/setup.ts'],
       css: false,
+      // WORKTREES ARE EXCLUDED, AND THIS IS LOAD-BEARING. Writers work in
+      // `worktrees/<slice>/`, which is INSIDE the repo root, and vitest's
+      // default include globs the whole root — so without this the MAIN tree's
+      // suite collects every worktree's copy of every test. MEASURED on the
+      // day-1 scaffold: with two worktrees present, `pnpm test` reported
+      // **3 passed** for a tree that contains ONE test file, i.e. the gate's
+      // counts described three trees at once and a worktree's failures would
+      // have been reported against `main`.
+      //
+      // `exclude` REPLACES vitest's defaults rather than extending them, so the
+      // node_modules/dist entries are restated here deliberately — dropping
+      // them would sweep dependencies into the run.
+      exclude: [
+        '**/node_modules/**',
+        '**/dist/**',
+        '**/.gate-logs/**',
+        '**/worktrees/**',
+        '**/.{idea,git,cache,output,temp}/**',
+      ],
       // The config default IS the bound (AGENTS.md §Host hygiene): a bare
       // `pnpm exec vitest run` cannot exceed two workers.
       maxWorkers: testMaxWorkers(),

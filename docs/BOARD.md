@@ -78,6 +78,14 @@ RECOVERY | repo=/home/administrator/projects/FileStore | remote=https://github.c
 - `TRAP` — **a writer that reads a relative path edits the MAIN tree, not its
   worktree**, because every bash call starts in the session workspace. Rule: every path
   in a brief and in a report is ABSOLUTE.
+- `TRAP` — **a writer worktree inside the repo is swept into the MAIN tree's test
+  run.** Vitest's default include globs the whole root, so `worktrees/<slice>/`
+  tests were collected by `main`'s suite: the day-1 gate reported **3 passed** for
+  a tree holding **ONE** test file, and a worktree's red would have been reported
+  against `main`. Rule: `test.exclude` in `vite.config.ts` names `worktrees` (and
+  RESTATES vitest's `node_modules`/`dist` defaults, because `exclude` REPLACES
+  them), pinned by `tests/architecture/worktree-isolation.test.ts`. **Read the test
+  COUNT, not just the exit code.**
 - `TRAP` — **`git checkout -- <path>` restores the INDEX, not HEAD**, so a "restore"
   in a tree with uncommitted work wipes it. Rule: commit the slice before injecting, or
   restore from an out-of-tree copy.

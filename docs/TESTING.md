@@ -64,7 +64,8 @@ arm proves the pins hold the property. Both are needed.
 
 | Behaviour | Pin (test) | Where | How it is watched red |
 | --- | --- | --- | --- |
-| *(day-1 scaffold: no pins yet — the suite is empty and the gate says so)* | | | |
+| The app mounts and names itself (and the whole test harness agrees end to end) | `mounts and names the app` | `tests/app/shell.test.tsx` | Change the heading text in `src/App.tsx`; the role/name query finds nothing. |
+| The suite collects NOTHING from a writer worktree, and keeps vitest's default excludes | `the suite never collects tests from a writer worktree, and keeps the default excludes` | `tests/architecture/worktree-isolation.test.ts` | Delete `'**/worktrees/**'` from `test.exclude` in `vite.config.ts` — watched RED, arms below. |
 
 ## Raw logs
 
@@ -75,10 +76,35 @@ landing is verified. **Never pipe a run through `tail`/`head`.**
 
 ### day-1 scaffold — no ledger row (the machinery itself)
 
-- **Gate:** cheap tier `pnpm run typecheck` — expect the suite to report **no test
-  files**, which is honest for a scaffold: there is nothing to prove yet.
-- **Differential:** none — there is no pinned behaviour to break.
-- **Note:** the scaffold's acceptance test is the upstream one:
-  `bash scripts/board.sh` → `BOARD RECONCILED`, and
-  `GATE_TESTS=0 bash scripts/gate.sh` → exit **2** (cheap tier green, suite NOT run).
-  **`2` is never "the gate passed".**
+- **Gate:** cheap tier `pnpm run typecheck` (exit 2, suite NOT run); full gate
+  **exit 0** on **2/2 tests**, raw log `.gate-logs/gate.log`.
+- **Differential:** the worktree-isolation arms below (this is the one pinned
+  behaviour the scaffold owns).
+- **Acceptance test for the machinery** (upstream `scaffold/README.md`):
+  `bash scripts/board.sh` → `BOARD RECONCILED` (exit 0), and
+  `GATE_TESTS=0 bash scripts/gate.sh` → exit **2**. **`2` is never "the gate
+  passed".**
+
+### worktree isolation — the defect the day-1 gate caught on itself
+
+Found by reading a count, not by luck: the first full gate reported **3 passed**
+for a tree holding **ONE** test file. Vitest's default include globs the repo
+root, and writers' worktrees live at `worktrees/<slice>/` INSIDE it — so the MAIN
+tree's run collected each worktree's copy of every test. A worktree's red would
+have been reported against `main`, and `main`'s counts would have described three
+trees at once.
+
+- **Arm A — baseline, hash printed, suite run whole:** `vite.config.ts`
+  `sha256=2d5f0a4a…` → **2 test files** (this tree's own two).
+- **Arm B — injection: `'**/worktrees/**'` deleted from `test.exclude`:** hash
+  `sha256=<printed below>` → the pin file goes **RED** (no `worktrees` in the
+  exclude block) AND the whole suite collects **4 test files** — the two
+  worktrees' copies are back.
+- **Arm C — restored from HEAD:** hash returns to Arm A's value; suite green at
+  **2/2**. Restore is from HEAD on a COMMITTED tree, never `git checkout -- <path>`
+  in a tree with uncommitted work.
+- **Why the pin reads the config as TEXT:** importing `vite.config.ts` and calling
+  it from inside the runner dies with `TypeError: The URL must be of scheme file`
+  (`fileURLToPath(new URL('./src', import.meta.url))`, because vitest's transform
+  hands the module a non-`file:` URL). Measured, not assumed — the first version
+  of this pin failed exactly that way, and the log is in `.gate-logs/`.
