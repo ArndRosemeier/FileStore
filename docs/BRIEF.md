@@ -61,6 +61,9 @@ the deliverable — it must say what it protects.
 # Docs to amend in the SAME commit
 <ledger row N, seam index row if a seam moved, the testing doc section> — and carry
 the `COPIES:` line (`COPIES: n→1 — <seam>` or `COPIES: 1 — checked (grepped: <what>)`).
+If those docs must NAME your own commit's sha, that is impossible in one commit: put
+the source and its tests in the FIRST commit, the docs naming that sha in a SECOND
+commit on the same branch and in the same push, and say so in the commit body.
 
 # Your report (short)
 LANDED or BLOCKED, then: sha; gate counts + peak; each arm with its printed hash and
@@ -84,3 +87,23 @@ rather than implementing it.
 - [ ] Pins are phrased as statements, not as "test the feature".
 - [ ] The `COPIES:` line is required in the report.
 - [ ] The BLOCKED clause is present, including "the brief may be wrong".
+- [ ] The docs/sha ordering is stated: source first, docs naming that sha second, one
+      branch, one push. (Both writers found this themselves; it is now in the template.)
+
+---
+
+## The two-commit docs pattern, and why it is not a violation
+
+"Docs amended in the SAME commit as the change" is the rule, and it holds for every
+landing whose docs do not quote a sha. It is **impossible** for a landing whose ledger
+row must read `LANDED <sha>`: a commit cannot contain its own hash.
+
+So the pattern is: **commit 1** carries the source and its tests; **commit 2**, on the
+same branch and in the same push, carries the docs naming commit 1's sha. The day-1
+scaffold did exactly this, and both writers independently arrived at it. The window
+where commit 1 exists with no docs is one commit on a branch, never on `main`.
+
+That is also why the dispatcher integrates with a **merge** rather than a rebase: each
+landing's docs name its OWN sha, and `docs/BOARD.md` requires every `LANDED` sha to be
+an ancestor of the remote branch. A rebase rewrites those shas and the docs then point
+at commits that no longer exist.

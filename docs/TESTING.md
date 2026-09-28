@@ -232,3 +232,57 @@ trees at once.
   `tests/architecture/one-fetch.test.ts`, which reads the files from disk). The
   OTHER copy this repo carries is Imager's, across the repo boundary — that is
   named debt in ledger row 5, not a second seam inside this tree.
+
+### the one-fetch pin's precision — a false red the dispatcher's own differential found
+
+Found while verifying row 7. This is the class the doctrine points at: the pin was
+**GREEN on the real tree**, so nothing was failing — but an injection aimed at the
+*pin* (not at the code) proved it could report a failure that did not exist.
+
+The pin stripped BLOCK COMMENTS before looking for `Authorization`, but its `fetch(`
+check read the raw text. So a `src/` file carrying a comment that merely MENTIONED a
+fetch call turned the structural pin RED with no call in existence — a false red the
+next writer would have chased as a missing-pin signal.
+
+Fix: `stripBlockComments` → `stripComments`, applied to BOTH checks, with the
+line-comment arm requiring a character other than `:` before `//` so it cannot eat the
+`https://` scheme the original author was protecting.
+
+- **Arm 1 — baseline:** `src/App.tsx`
+  `sha256=970c1f13916ea0260510ddb98411089b5d15d408356e806a6ba112bef2a5ede2` → pin
+  **PASS** (2/2, exit 0).
+- **Arm 2 — a block comment in `src/App.tsx` that merely mentions a fetch call:**
+  `sha256=f94afac259365bb256eb5057d07a4599740c8f3331ec5bfb5cd0efa6fde1721d` —
+  DIFFERENT → **exit 0, 2/2**: the false red is GONE. (The same file was RED before the
+  fix; this arm is the regression test for it.)
+- **Arm 3 — a REAL second `fetch(` call appended to `src/App.tsx`:**
+  `sha256=eb0c647f8862b1b0b18adc6f642b2ad061c04c8a1a56d5f0937a90bb635aa4de` —
+  DIFFERENT → **RED** (exit 1) on `exactly ONE module under src/ calls fetch( — the
+  ServerStore transport`. The pin still holds the property it exists for, so the fix
+  removed a false red WITHOUT blunting the pin.
+- **Arm 4 — restored from HEAD:** `src/App.tsx`
+  `sha256=970c1f13916ea0260510ddb98411089b5d15d408356e806a6ba112bef2a5ede2`, identical
+  to Arm 1; pin 2/2, exit 0.
+
+The general lesson: **a structural pin that greps text must strip comments on EVERY
+term it greps, not only on the one where the need was first noticed.** The asymmetry
+was invisible until an injection aimed at the pin rather than at the code.
+
+### the integration — rows 7 and 8 merged (a14730a)
+
+- **Conflicts:** `docs/DECISION-LEDGER.md`, `docs/ARCHITECTURE.md`, `docs/TESTING.md`
+  ONLY. **Zero source files overlapped** — the file-disjointness the briefs were built
+  on held, and the docs conflict is the one the rules predict and call mechanical.
+- **Resolution:** a union, built programmatically from the merge stages rather than
+  retyped (`:2:` ours, `:3:` theirs) so no row could be transcribed wrong: every row of
+  both landings kept; ledger row 5 rewritten because BOTH halves of the port deviation
+  are now in; the union was checked by counting (8 ledger rows, 7 seam rows, both
+  landing sections present, zero conflict markers).
+- **Dispatcher's own gate on the INTEGRATED tree:** `bash scripts/gate.sh` → **exit 0**,
+  **9 test files, 75/75 tests**, peak RSS **733,772 KB**, raw log `.gate-logs/gate.log`.
+- **A merge, not a rebase:** each landing's docs name its own sha, and every `LANDED`
+  sha must be an ancestor of `origin/main`. A rebase would have rewritten `6718f9d` and
+  `ad5c839` and left the docs pointing at commits that do not exist.
+- **Dispatcher cleanup in the same landing:** removed a dead `.gitignore` entry
+  (`/.differential-row8/` — the whole `worktrees/` tree is already ignored, so it could
+  never match), and `docs/BOARD.md` records the force-push and pin-precision traps.

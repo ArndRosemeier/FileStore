@@ -33,22 +33,34 @@ function repoRelative(file: string): string {
   return relative(process.cwd(), file);
 }
 
-/** Block comments only. A `//`-to-end-of-line strip would eat the `https://`
- * scheme inside the very base URL this seam is built around. */
-function stripBlockComments(text: string): string {
-  return text.replace(/\/\*[\s\S]*?\*\//g, '');
+/**
+ * Comments removed, so a MENTION of a call is never read as a call.
+ *
+ * MEASURED, by the dispatcher's own differential after this landing: with the
+ * strip applied to the `Authorization` check only, appending one block comment
+ * merely MENTIONING a fetch call to `src/App.tsx` turned the fetch pin RED
+ * although no call existed — a false red that the next writer would have chased
+ * as a missing pin. Both checks now strip both comment forms.
+ *
+ * The line-comment arm deliberately requires a character OTHER than `:` (or the
+ * start of the line) before the `//`, so it does not eat the `https://` scheme
+ * inside the very base URL this seam is built around — the reason the original
+ * author restricted this function to block comments in the first place.
+ */
+function stripComments(text: string): string {
+  return text.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/[^\n]*/g, '$1');
 }
 
 const FILES = sourceFiles(SRC);
 
 it('exactly ONE module under src/ calls fetch( — the ServerStore transport', () => {
-  const hits = FILES.filter((file) => /\bfetch\(/.test(readFileSync(file, 'utf8')));
+  const hits = FILES.filter((file) => /\bfetch\(/.test(stripComments(readFileSync(file, 'utf8'))));
   expect(hits.map(repoRelative)).toEqual(['src/server/store-client.ts']);
 });
 
 it('the Authorization header is BUILT in exactly ONE src/ module', () => {
   const hits = FILES.filter((file) =>
-    stripBlockComments(readFileSync(file, 'utf8')).includes('Authorization'),
+    stripComments(readFileSync(file, 'utf8')).includes('Authorization'),
   );
   expect(hits.map(repoRelative)).toEqual(['src/server/store-client.ts']);
 });
