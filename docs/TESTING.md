@@ -67,7 +67,10 @@ arm proves the pins hold the property. Both are needed.
 | The app mounts and names itself (and the whole test harness agrees end to end) | `mounts and names the app` | `tests/app/shell.test.tsx` | Change the heading text in `src/App.tsx`; the role/name query finds nothing. |
 | The suite collects NOTHING from a writer worktree, and keeps vitest's default excludes | `the suite never collects tests from a writer worktree, and keeps the default excludes` | `tests/architecture/worktree-isolation.test.ts` | Delete `'**/worktrees/**'` from `test.exclude` in `vite.config.ts` — watched RED, arms below. |
 | The save seam's branch matrix: picker used; a cancel is silent and free; a real failure is loud; the anchor is the fallback | 9 tests, incl. `a present picker is used: suggested name, MIME type, bytes written and closed` · `a cancelled picker is the owner changing his mind: silent, and nothing was built` · `a real failure keeps its own reason — the caller must surface it loudly` · `an absent picker falls back to the anchor download with the suggested name` | `tests/lib/saveFile.test.ts` | Arm A below: build the bytes BEFORE the picker → the cancel-cost pin and the ordering pin both RED. |
-| The open seam's branch matrix, MULTIPLE files, and the input fallback | 13 tests, incl. `several picked files all come back, in the order they were chosen` · `a cancelled picker is the owner changing his mind: silent` · `dismissing the input dialog is a SILENT cancel and removes the element` · `choosing files through the input yields every name and every byte, in order` | `tests/lib/openFile.test.ts` | `multiple` is forwarded to BOTH branches, pinned; the pending-on-old-browser case has no pin because it has no signal to pin (see the debt row). |
+| The open seam's branch matrix, MULTIPLE files, and the input fallback | 14 tests, incl. `opening SEVERAL files at once reads NO file bytes either, and keeps the chosen order` · `both the picker and the hidden input hand over the REAL File the browser produced, not a copy` · `a cancelled picker is the owner changing his mind: silent and read-free` · `dismissing the input dialog is a SILENT cancel and removes the element` · `choosing files through the input hands over every real File, in order, and reads nothing` | `tests/lib/openFile.test.ts` | **Row 13 contract:** `opening ONE file reads NO file bytes at all: the whole-file read is never called` and its SEVERAL-files sibling spy on each `File`'s own `arrayBuffer` and assert it was never called. **Arm A below** reds exactly the three no-read pins while the branch matrix stays green. `multiple` is forwarded to BOTH branches, pinned; the pending-on-old-browser case has no pin because it has no signal to pin (see the debt row). |
+| The intake hands over the `File` and its own `size`, never pre-read bytes | `size is the browser own file.size, and a zero-byte file reports 0 with no read` · `a zero-byte file is refused from its size, WITHOUT any read and BEFORE any request is issued` | `tests/lib/openFile.test.ts`, `tests/features/files.test.tsx` | Make the review read (`void file.file.arrayBuffer()` in `reviewUploads`) → the zero-byte pin stays GREEN (it returns before the read) and the read-once pin reds, **Arm C below**; reintroduce the whole-file read in the picker branch → the open-seam pins red, **Arm A below**. |
+| The single-object path reads the picked file EXACTLY ONCE, at write time | `the single-object path reads the picked file EXACTLY ONCE, at write time` | `tests/features/files.test.tsx` | **Arm C below.** The pin asserts `arrayBuffer` was NOT called after the review and collision listing, then called exactly once after the upload, and the `PUT` carried the file's own bytes. |
+| The chunked path reads only SLICES of the picked `File` | `the chunked path reads only SLICES: the whole-file read is never called, and each part read covers only that part range` | `tests/features/chunkUpload.test.tsx` | **Arm B below:** make the default source read the whole file (`bytesChunkSource(new Uint8Array(await review.file.arrayBuffer()))`) → this pin ALONE reds (12 green), the whole-file spy firing and the recorded `slice` ranges empty. |
 | A file name maps to a legal object name, or THROWS (and the bound is the server's landed 1024) | 17 tests, incl. `OBJECT_NAME_MAX_LENGTH is 1024 and the pattern accepts exactly the server’s landed rule at both edges` · `an ordinary messy name maps to a legal one and REPORTS the change` · `a 1200-character name maps to at most 1024 legal characters and keeps its extension` · `an extension too long for the whole 1024-character budget is dropped, never half-kept` · `a name that CANNOT map throws, and never returns a placeholder` | `tests/lib/name.test.ts` | **Arm B below (row 10):** under-count the folder's characters → the folder-aware truncation pin RED. The old `a 200-character name …64…` arm (row 8) is retired with its pin, which was rewritten to the new bound. |
 | A folder is a naming convention with an exact inverse, and an illegal path is REFUSED | 10 tests, incl. `a mapped file name can NEVER contain the folder separator (the reserved-separator property)` · `the empty-folder marker name can never be produced by mapping a file name` · `parseFolderPath and formatFolderPath are exact inverses, and '' is the root` · `a nested path round-trips: joinFolder(['docs','reports'], 'report.pdf') splits back to exactly that folder and file part` · `folderPrefix returns a value that is itself a LEGAL object-name prefix` · `folderMarkerName is a legal object name and ends with the separator` · `ancestors returns the breadcrumb root-first, and parentFolder of the root is the root` · `an illegal folder segment is REFUSED loudly rather than sanitised into a different folder` | `tests/lib/folder.test.ts` | **Arm A below:** stop collapsing runs of `-` → the reserved-separator pin RED (9 neighbours green). **Arm C below:** weaken `isFolderSegment` to plain name legality → the segment-refusal and marker pins RED (8 neighbours green). |
 | Mapping into a folder keeps the full name legal and `changed` describing the FILE part only | ``mapping into a folder returns the FULL store name and keeps `changed` describing the FILE name only`` · `a file name longer than the bound maps into a folder to a legal name of at most the bound, keeping its extension` · `toObjectName(fileName) with no folder behaves EXACTLY as before — the row-9 call site is untouched` · `mapping into an ILLEGAL folder segment throws ObjectNameMappingError rather than guessing a folder` | `tests/lib/name.test.ts` | **Arm B below:** under-count the folder's characters; the folder-aware truncation pin RED while the root-behaviour pin beside it stays green. |
@@ -94,7 +97,7 @@ arm proves the pins hold the property. Both are needed.
 | The four connection states, and nothing thrown into the shell | `with no key the hook is unconfigured and proves NOTHING with whoami` · `a whitespace-only key is the same honest first run, not a request with a blank credential` · `a stored key becomes ready carrying the WhoAmI, proven through whoami` · `a refused key becomes failed carrying the error, and NOTHING throws into the shell` · `changing the settings proves the NEW key again` | `tests/app/useStore.test.tsx` | Remove the empty-key branch (`whoami` with a blank credential); or let the rejection escape the `.then` handler: the `failed` state never arrives. |
 | The listing shows the count and the four stored facts, with the digest TRUNCATED | `the listing shows the count and each object’s name, size, creation time and TRUNCATED digest` | `tests/features/files.test.tsx` | Render the full digest (or drop `size`/`createdAt`): the `title`/`queryByText` assertions RED. |
 | Refresh re-reads the listing | `Refresh re-reads the listing, so a change made by another program becomes visible` | `tests/features/files.test.tsx` | Point the button at a no-op: the new object never appears. |
-| A zero-byte file is refused with a reason BEFORE any request | `a zero-byte file is refused with a reason BEFORE any request is issued` | `tests/features/files.test.tsx` | Move the `bytes.length === 0` check after the collision listing: `listObjects` is called and the pin REDs. |
+| A zero-byte file is refused from its `size`, with a reason and WITHOUT a read, BEFORE any request | `a zero-byte file is refused from its size, WITHOUT any read and BEFORE any request is issued` | `tests/features/files.test.tsx` | Move the `size === 0` check after the collision listing: `listObjects` is called and the pin REDs. Read the file in the review instead (`void file.file.arrayBuffer()`) → the pin's `expect(read).not.toHaveBeenCalled()` REDs. **This pin was RENAMED by row 13** (it was `a zero-byte file is refused with a reason BEFORE any request is issued`): the test is now the browser's `size`, and the no-read half is asserted rather than assumed. |
 | An unmappable name is an error, never a guess | `a name that cannot map is reported as an error and NEVER guessed into an object name` | `tests/features/files.test.tsx` | `catch` the `ObjectNameMappingError` and substitute a placeholder: the refusal toast disappears and `putObject` is reached. |
 | The name mapping is shown BEFORE anything is written | `an upload shows the name mapping BEFORE anything is written` | `tests/features/files.test.tsx` | Write on pick (skip the review): `putObject` is called before the assertions. |
 | An existing object name REFUSES until the owner confirms, and the confirmation names BOTH | `an upload whose object name ALREADY EXISTS refuses until the owner confirms, and the confirmation names BOTH` | `tests/features/files.test.tsx` | Arm B below: make `unconfirmedOverwrites` return `[]` → the write happens unconfirmed. |
@@ -138,7 +141,7 @@ arm proves the pins hold the property. Both are needed.
 | Overwriting a chunked file writes a NEW GENERATION before the manifest is swapped, and only then OFFERS the old parts | `a chunked file is protected by its LOGICAL name: the upload refuses until the owner confirms` · `overwriting a chunked file writes a NEW GENERATION before the manifest is swapped` · `nextChunkGeneration refuses to reuse the previous generation` | `tests/features/chunkUpload.test.tsx` | **Arm 2 below**: stop claiming the chunked file's LOGICAL name → the gate pin RED, and the generation pin too (its setup needs the confirmation to appear) — an HONEST coupling, recorded rather than hidden. The old parts are only OFFERED: the pin asserts `deleteObject` was not called until the owner confirms. |
 | Deleting a chunked file removes the manifest AND every part, after a confirmation naming the COUNT | `deleting a chunked file removes the manifest AND every part, after a confirmation naming the count` · `a chunked delete that fails part way says what remains instead of claiming success` | `tests/features/chunkDelete.test.tsx` | **Arm 3 below**: take the parts first → the order pin RED alone (the partial-failure pin green). The manifest goes FIRST, so a failure leaves reported orphans rather than a visible file with missing bytes. |
 | A chunked download verifies every part against the service AND the manifest, refuses on a mismatch, and never materialises the file | `a chunked download verifies every part against the manifest and REFUSES to save on a mismatch` · `a part whose bytes do not match the service’s own x-serverstore-sha256 is refused too` · `the manifest must be consistent with the listing before any part is fetched` · `a chunked download never materialises the whole file: every part is written as it arrives` · `a cancelled picker costs NO manifest read and NO part fetch` | `tests/features/chunkDownload.test.tsx` | **Arm 1 below**: drop the manifest-hash comparison → the mismatch pin RED ALONE, the service-header pin GREEN (SPECIFIC). The streaming pin records, per write, how many reads had happened (a materialised file would show every read before the first write) and asserts the anchor path was never used. |
-| The chunk source reads ONE part at a time | `the chunk source reads ONE part at a time: a zero-copy view over bytes, and slice() over a File` | `tests/features/chunkUpload.test.tsx` | Break `fileChunkSource` to read the whole blob → the `slice(2, 5)` assertion RED; a second copy over bytes is caught by the `buffer` identity assertion. |
+| The chunk source reads ONE part at a time — and is now the PRODUCTION source | `the chunk source reads ONE part at a time: a zero-copy view over bytes, and slice() over a File` · `the chunked path reads only SLICES: the whole-file read is never called, and each part read covers only that part range` | `tests/features/chunkUpload.test.tsx` | Break `fileChunkSource` to read the whole blob → the `slice(2, 5)` assertion RED; a second copy over bytes is caught by the `buffer` identity assertion. **Row 13** made `fileChunkSource` the default in `uploadChunkedReview`; **Arm B below** reds the slice pin alone when the default reads the whole file. |
 
 ## Raw logs
 
@@ -863,6 +866,8 @@ likely to be brand new and therefore wrong.
     browser never holds the whole file" holds for the DOWNLOAD (streamed, one part in
     memory) and is NOT YET TRUE for the UPLOAD. This is the one place the brief could not
     be implemented as written, and it is a `src/lib/**` change, which the brief froze.
+    **CLOSED by row 13 (`00b4ce4`): `fileChunkSource` IS now the production source and the
+    open seam reads nothing — see the `### 00b4ce4` section below.**
   - **No multi-GB file has been exercised in a real browser.** Every pin uses a
     `chunkPartSize` of a few BYTES, because `planChunks` (frozen) hard-codes the service's
     64 MiB cap and no test may build a 64 MiB buffer; `chunkPartSize` is a PROP that
@@ -878,3 +883,137 @@ likely to be brand new and therefore wrong.
     UNREAD manifest-shaped object makes an upload under its heuristic logical name ask for
     confirmation, and its logical name is a GUESS — the safe direction (friction over a
     silent clobber), but a guess.
+
+### 00b4ce4 — row 13 (the intake hands over the `File`: no boundary materialises a whole picked file)
+
+- **What landed.** `src/lib/openFile.ts` no longer reads anything: `OpenedFile` is
+  `{fileName, file, size}` (`file` is the browser's own `File`, `size` its own `file.size`),
+  and BOTH branches map straight through — the picker's `handle.getFile()` and the hidden
+  input's `input.files`. Every consumer was routed through the new shape: `reviewUploads`
+  decides zero-byte from `size` with no read; the single-object path (`<= partSize`) reads
+  the file EXACTLY ONCE at its `putObject` call in `UploadPanel.tsx`; the chunked path reads
+  one `file.slice(start, end)` per part through `fileChunkSource`, which is now the
+  production default in `uploadChunkedReview` (`chunkUpload.ts` L237). `bytesChunkSource`
+  stays as the seam's alternative for a caller that already holds bytes (the pins drive it),
+  but is no longer what an upload uses. The branch matrix, the cancel-is-silent rule, the
+  `multiple` forwarding, the widened picker read and the documented pending-on-old-browser
+  failure are UNCHANGED.
+- **Commits (the two-commit docs pattern).** Commit 1 `00b4ce4ff720cb90f878bae79a421d92442b049f`
+  carries the source and its tests; commit 2 carries these docs, which name commit 1's sha.
+  `origin/main` advanced (`39c1379` → `bb299d5`, `docs/BOARD.md` only) while this slice was
+  written, so the branch was rebased BEFORE the push — which REWROTE commit 1's sha from
+  `ee4dee8…` to `00b4ce4…`, and every sha reference in the three docs was corrected to the
+  rebased one before the docs commit was amended. The source bytes are provably identical
+  across the rebase (`src/lib/openFile.ts` `sha256=b9d6617a…`, `chunkUpload.ts`
+  `sha256=2dc0603d…`, `upload.ts` `sha256=ba828839…`, `UploadPanel.tsx`
+  `sha256=c2e23bb0…`), so the three differential arms below hold unchanged. **No docs
+  conflict occurred** — the other landing touched only `docs/BOARD.md`, which this brief
+  forbids editing — so the union rule did not have to run; `git diff --name-only` for the
+  landing is the eight source/test files plus the three docs named in ledger row 13.
+- **Gate:** the ONE command, `bash scripts/gate.sh` (cheap `pnpm run typecheck`, then lint +
+  the whole suite), run **in-turn, foreground and UN-PIPED**, output redirected to a file —
+  **exit 0**. Counts read from the raw log: **24 test files, 213 passed / 213 tests**. The
+  stated baseline on the base (`39c1379`) is **24 files / 210 tests**, so this landing adds
+  **3 pins net** (open seam 13→14, `files` +1 read-once, `chunkUpload` +1 slice-only; the
+  retired read-failure pin is accounted for below) and every one of the 24 files is still
+  collected and green. The gate was run TWICE on the same source — once on the pre-rebase
+  commit and once on the rebased tree that was pushed (the rebase replayed the source
+  byte-identically; only `docs/BOARD.md` had advanced on `origin/main`) — with identical
+  counts: **24 files / 213 tests, exit 0** both times. Peak RSS **843,088 KB**, wall
+  **33.41 s** on the pushed tree (the earlier run peaked at **904,732 KB** / 33.55 s)
+  (`/usr/bin/time -v`; the gate itself sets `NODE_OPTIONS=--max-old-space-size=4096`). Raw
+  log `.gate-logs/gate.log`
+  — the git COMMON dir's, so every worktree shares one log. No browser was started, so no
+  browser tree was owed a kill: `ps -eo comm= | grep -cE '^(chrome|chromium|headless_shell|playwright)$'`
+  → `0`.
+- **Build:** because this is a CONTRACT change and not only a type-level one, `pnpm run build`
+  (`tsc -b && vite build`) was run as well, UN-PIPED — **exit 0**, `✓ built in 201ms`, peak
+  RSS **557,524 KB**, wall **5.25 s**. A `tsc -b` failure is not the only way a build breaks,
+  so the typecheck-only green is not offered as the build's proof.
+- **`COPIES: 1 — checked, no duplication`** (grepped): `arrayBuffer` across `src/` — the ONLY
+  whole-file read of a PICKED file is the single-object path's one call
+  (`src/features/files/UploadPanel.tsx:235`); the ONE slice source is
+  `src/features/files/chunkUpload.ts:83` (`fileChunkSource`, now production's);
+  `src/server/store-client.ts:298` reads a RESPONSE, a different boundary. `OpenedFile.bytes`
+  and `UploadReview.bytes` no longer exist anywhere (`grep -rn '\.bytes'` over the four
+  changed `src/` files finds only an unrelated `[...bytes]` spread in
+  `randomChunkGeneration`).
+- **Differential** (my own; **THREE** injections against the COMMITTED tree `00b4ce4`,
+  restore from HEAD inside a `trap`, every arm's sha256 printed BEFORE and AFTER, and every
+  injection asserting its anchor matched exactly ONCE). No two arms share a hash, so none is
+  a VOID probe. No injection crashed collection, so every red is a NAMED pin.
+  - **Arm A — the eager whole-file read returns to the picker branch.**
+    `src/lib/openFile.ts`
+    `sha256=b9d6617a4b7afde17ddaf20866643e1a72c78d0f097e33f960fbce63f57fedf4` →
+    `for (const file of files) await file.arrayBuffer();` inserted before the `opened` return
+    → `sha256=1ee1f5b09174f222d8e46e5cc70269fcada24ebd5030fc615bf81c8e0961fbfc` — DIFFERENT →
+    `tests/lib/openFile.test.ts` **RED** (exit 1, **3 failed | 11 passed**): the three pins
+    that assert a `File` is handed over unread — `opening ONE file reads NO file bytes at
+    all…`, `opening SEVERAL files at once reads NO file bytes either…`, `size is the browser
+    own file.size…`. The 11 neighbours stayed GREEN, INCLUDING the input-branch no-read pin
+    and the real-`File` identity pin — the red is specific to the picker branch's read, not
+    to a broken file.
+  - **Arm B — the chunked default source reads the whole file.**
+    `src/features/files/chunkUpload.ts`
+    `sha256=2dc0603de309891bb1f4593a270d3184b21d6df32981f3e913a5515479b5a917` →
+    `fileChunkSource(review.file)` replaced by
+    `bytesChunkSource(new Uint8Array(await review.file.arrayBuffer()))` →
+    `sha256=044f70b25cb681e981b43ee5317654b2799a950215752c3165dc8ca0dec8b65d` — DIFFERENT →
+    `tests/features/chunkUpload.test.tsx` **RED** (exit 1, **1 failed | 12 passed**) on exactly
+    `the chunked path reads only SLICES: the whole-file read is never called, and each part
+    read covers only that part range` (the whole-file spy fired and the recorded `slice`
+    ranges were empty). Every write-order, manifest, progress and 413 pin stayed GREEN, so
+    the arm is specific to the read shape.
+  - **Arm C — the review reads the file eagerly (`void file.file.arrayBuffer()` before the
+    mapping).** `src/features/files/upload.ts`
+    `sha256=ba8288393c186b39868d252d1d0da4e5437a794b8ba8e9678ef449236f7042b3` →
+    `sha256=cb66c81bdb9525cdf0a17dfece32105969770e423648720d84d25be620a44dd8` — DIFFERENT →
+    `tests/features/files.test.tsx` **RED** (exit 1, **1 failed | 15 passed**) on exactly
+    `the single-object path reads the picked file EXACTLY ONCE, at write time` (its
+    `expect(read).not.toHaveBeenCalled()` after the review). The zero-byte pin beside it
+    stayed GREEN — it returns on `size === 0` before the injected read — so the arm is
+    specific to the read-once property and not a blanket break.
+  - **Restore:** `git checkout HEAD -- <file>` in the `trap` of each arm; all eight changed
+    files' working-tree sha256 verified EQUAL to `git show HEAD:<file> | sha256sum`, and
+    `git status --porcelain` clean apart from the three scratch logs, which were removed
+    before this report. No browser was started, so there was no tree to reap.
+- **EVERY EXISTING PIN THIS CONTRACT CHANGE ALTERED, and why:**
+  1. `a present picker is used and one picked file is read whole` → **REWRITTEN** to
+     `opening ONE file reads NO file bytes at all: the whole-file read is never called`. The
+     old pin asserted the very behaviour the contract removes (`bytes === [1,2,3]`); it now
+     asserts the hand-over (`fileName`/`size`) and that the file's `arrayBuffer` was never
+     called.
+  2. `several picked files all come back, in the order they were chosen` → **REWRITTEN** to
+     `opening SEVERAL files at once reads NO file bytes either, and keeps the chosen order`.
+     The byte-array equality is replaced by the name order plus a no-read assertion on every
+     picked file.
+  3. `choosing files through the input yields every name and every byte, in order` →
+     **REWRITTEN** to `choosing files through the input hands over every real File, in order,
+     and reads nothing`; identity (`toBe`) replaces the byte comparison.
+  4. `a cancelled picker is the owner changing his mind: silent` → **RENAMED** to
+     `…: silent and read-free`; the assertion is unchanged, the name now says what row 13
+     added.
+  5. `the input is removed even when reading a chosen file fails (loud reason)` →
+     **RETIRED.** It exercised a read failure in the input branch, and that branch now maps
+     the browser's `File`s synchronously — there is no read and therefore no read failure to
+     clean up after. Its cleanup guarantee survives in the new input pin
+     (`input.isConnected` is `false` after `change`) and in `dismissing the input dialog is a
+     SILENT cancel and removes the element`.
+  6. `a zero-byte file is refused with a reason BEFORE any request is issued` (files.test)
+     → **RENAMED** to `a zero-byte file is refused from its size, WITHOUT any read and BEFORE
+     any request is issued`, and it now also asserts the file was never read.
+  7. Test FIXTURES (not pins, named for the compiler's sake): `picked()` in
+     `tests/features/files.test.tsx` and `tests/features/folders.test.tsx`, and the eight
+     inline `openFile` mocks plus the `UploadReview` fixture in
+     `tests/features/chunkUpload.test.tsx`, all moved from `{fileName, bytes}` to
+     `{fileName, file, size}`. The `UploadReview` literal in the per-part-progress pin is the
+     same change.
+  8. `the chunk source reads ONE part at a time: a zero-copy view over bytes, and slice()
+     over a File` — **UNCHANGED as a pin**; only its comment was corrected (it claimed
+     production used the bytes source, which row 13 reverses).
+- **What is NOT pinned, and is DEBT rather than a papered-over gap:** still no multi-GB
+  upload in a real browser — every pin is jsdom with a stubbed picker and a mocked
+  transport, so the no-read and slice-only properties are proven as DERIVATIONS, not as a
+  live round trip; the browser's own file-size limits remain the ceiling; the single-object
+  path still materialises any file at or below the 64 MiB part size, which is row 12's
+  design and unchanged. See `docs/ARCHITECTURE.md` §4 (the closed row) and ledger row 13.
