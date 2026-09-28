@@ -87,8 +87,8 @@ export async function createFolder(
   return markerName;
 }
 
-/** What a sequential folder delete did, and where it stopped. */
-export interface FolderDeleteOutcome {
+/** What a sequential delete did, and where it stopped. */
+export interface SequentialDeleteOutcome {
   /** The object names that were actually removed, in the order they went. */
   deleted: string[];
   /** The names not removed: the one that failed plus every name after it. */
@@ -105,11 +105,17 @@ export interface FolderDeleteOutcome {
  * This never retries: a retried `DELETE` is not the double-upload hazard a
  * retried `PUT` is, but a `429` means the service is asking for a wait, and the
  * honest answer is to report it rather than to hammer.
+ *
+ * THIS IS THE ONE SEQUENTIAL DELETE. It was folded out of `deleteFolderObjects`
+ * in ledger row 12 slice B, because a chunked file's delete is the same act over
+ * a different name list (its manifest plus every part) — a second loop would be a
+ * second place the stop-at-the-first-failure and report-what-remains behaviour
+ * could drift.
  */
-export async function deleteFolderObjects(
+export async function deleteObjectNames(
   target: StoreTarget,
   names: readonly string[],
-): Promise<FolderDeleteOutcome> {
+): Promise<SequentialDeleteOutcome> {
   const deleted: string[] = [];
   const remaining: string[] = [];
   let failure: unknown = null;
@@ -131,4 +137,12 @@ export async function deleteFolderObjects(
   }
 
   return { deleted, remaining, failure };
+}
+
+/** A folder delete is the one sequential delete over the objects under a prefix. */
+export async function deleteFolderObjects(
+  target: StoreTarget,
+  names: readonly string[],
+): Promise<SequentialDeleteOutcome> {
+  return deleteObjectNames(target, names);
 }

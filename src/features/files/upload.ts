@@ -34,7 +34,6 @@
 import type { FolderPath } from '@/lib/folder';
 import { toObjectName } from '@/lib/name';
 import type { OpenedFile } from '@/lib/openFile';
-import type { ObjectEntry } from '@/server/store-client';
 
 /** One file that passed review: what it is called, and what it will be called. */
 export interface UploadReview {
@@ -108,15 +107,20 @@ export function reviewUploads(
 }
 
 /**
- * The object names in this review that ALREADY EXIST in the store. An empty array
- * means the whole review is new names and needs no confirmation.
+ * The object names in this review that ALREADY EXIST. An empty array means the
+ * whole review is new names and needs no confirmation.
+ *
+ * `taken` is what the callers already know is there — `takenObjectNames` in
+ * `src/features/files/chunks.ts` is the ONE place that answers it, because a
+ * chunked file is claimed by its LOGICAL name (which the listing does not carry)
+ * and an unreadable manifest claims one only uncertainly. This function therefore
+ * compares against a set rather than re-deriving one from a listing.
  */
 export function collidingObjectNames(
   reviews: readonly UploadReview[],
-  objects: readonly ObjectEntry[],
+  taken: ReadonlySet<string>,
 ): string[] {
-  const stored = new Set(objects.map((entry) => entry.name));
-  return reviews.map((review) => review.objectName).filter((name) => stored.has(name));
+  return reviews.map((review) => review.objectName).filter((name) => taken.has(name));
 }
 
 /**

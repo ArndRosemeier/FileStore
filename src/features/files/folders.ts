@@ -108,12 +108,25 @@ function rowFor(
  * Derive the current folder's files and subfolders from ONE listing.
  *
  * `entries` is the listing for the current folder (its `?prefix=` subtree, or
- * the whole store at the root) already in display order; `current` is the folder
+ * the whole store at the root), already in display order; `current` is the folder
  * being viewed. The result's `files` keeps the incoming order, and `subfolders`
  * is sorted by segment (code-unit, like `src/features/files/useObjects.ts` — a
  * locale-dependent sort would read differently on two machines).
+ *
+ * `allEntries` is the SAME listing WITHOUT the display transforms — in practice
+ * the chunk view's hidden objects (`src/features/files/chunks.ts`). It is what
+ * the delete counts are computed from, because a chunked file's parts are hidden
+ * from the rows but a delete still removes them: counting them from `entries`
+ * would make a folder's confirmation name FEWER objects than the delete takes.
+ * `objectCount` / `folderCount` / `files` deliberately come from `entries`, so a
+ * chunked file is ONE object inside a folder and its parts are never rows.
+ * Defaults to `entries`, which is the pre-chunk behaviour exactly.
  */
-export function describeFolder(entries: readonly ObjectEntry[], current: FolderPath): FolderView {
+export function describeFolder(
+  entries: readonly ObjectEntry[],
+  current: FolderPath,
+  allEntries: readonly ObjectEntry[] = entries,
+): FolderView {
   const prefix = folderPrefix(current);
   const inCurrent =
     prefix === '' ? [...entries] : entries.filter((entry) => entry.name.startsWith(prefix));
@@ -131,7 +144,6 @@ export function describeFolder(entries: readonly ObjectEntry[], current: FolderP
       const segment = markerPath[current.length];
       if (segment === undefined) continue;
       const found = rowFor(rows, current, segment);
-      found.row.deleteCount += 1;
       if (markerPath.length > current.length + 1) {
         const child = markerPath[current.length + 1];
         if (child !== undefined) found.childSegments.add(child);
@@ -153,11 +165,29 @@ export function describeFolder(entries: readonly ObjectEntry[], current: FolderP
     if (segment === undefined) continue;
     const found = rowFor(rows, current, segment);
     found.row.objectCount += 1;
-    found.row.deleteCount += 1;
     if (folder.length > current.length + 1) {
       const child = folder[current.length + 1];
       if (child !== undefined) found.childSegments.add(child);
     }
+  }
+
+  // The DELETE side, counted from EVERY object under the prefix — including the
+  // chunk parts and manifests the rows do not show, because a delete removes
+  // them. A child that exists ONLY as hidden objects gets no row of its own: it
+  // would be a folder nothing links to, and its objects are already NAMED in the
+  // chunk report instead.
+  const allUnder =
+    prefix === '' ? [...allEntries] : allEntries.filter((entry) => entry.name.startsWith(prefix));
+  for (const entry of allUnder) {
+    const folder = isFolderMarkerName(entry.name)
+      ? parseFolderPath(entry.name.slice(0, -FOLDER_SEPARATOR.length))
+      : splitObjectName(entry.name).folder;
+    if (folder.length <= current.length) continue;
+    const segment = folder[current.length];
+    if (segment === undefined) continue;
+    const existing = rows.get(segment);
+    if (existing === undefined) continue;
+    existing.row.deleteCount += 1;
   }
 
   const subfolders = [...rows.values()]
@@ -167,7 +197,7 @@ export function describeFolder(entries: readonly ObjectEntry[], current: FolderP
       return left.segment < right.segment ? -1 : 1;
     });
 
-  return { files, subfolders, deleteCount: inCurrent.length };
+  return { files, subfolders, deleteCount: allUnder.length };
 }
 
 /**
