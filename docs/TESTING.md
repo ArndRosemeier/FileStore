@@ -80,6 +80,32 @@ arm proves the pins hold the property. Both are needed.
 | A JSON body that does not match the schema is a typed `invalid-response`, never empty data | `a JSON body that does not match the schema yields a typed invalid-response, never empty data` | `tests/server/store-client.test.ts` | `catch` the zod failure and return `[]` instead of throwing. |
 | Exactly ONE module under `src/` calls `fetch(` | `exactly ONE module under src/ calls fetch( — the ServerStore transport` | `tests/architecture/one-fetch.test.ts` | Add a `fetch(` to any other `src/` file: the file list gains a member. Reads `src/` from DISK; never imports. |
 | The `Authorization` header is built in exactly ONE `src/` module | `the Authorization header is BUILT in exactly ONE src/ module` | `tests/architecture/one-fetch.test.ts` | Build the header in a second `src/` module: the file list gains a member. |
+| With no stored key the app shows the settings form, says it is NOT CONFIGURED, and issues NO store request | `with no stored key the app renders the settings form, says it is NOT CONFIGURED, and issues NO store request` | `tests/features/settings.test.tsx` | Make `useStore` probe anyway (drop the empty-key branch): `whoami` is called. Or render `FileBrowser` unconditionally: `listObjects` is called. |
+| A corrupt stored settings value is SURFACED with its problem, never silently ignored | `a CORRUPT stored value is SURFACED with its problem text, never silently ignored` · `a corrupt value that IS json but not settings names the failing field, and still no request` | `tests/features/settings.test.tsx` | Render the form as if the read were `ok` (drop the `corrupt` branch in `SettingsPanel`): the `alert` disappears. |
+| "Forget key" clears ONLY the key and returns the app to unconfigured | `"Forget key" clears the key, leaves baseUrl and store as they were, and returns the app to unconfigured` | `tests/features/settings.test.tsx` | `setSettingsRead({status:'ok', settings: DEFAULT_SETTINGS})` instead of re-reading after `forgetKey()`: `baseUrl`/`store` change and the pin REDs. |
+| The key is a password field, and the panel warns that it is stored in this browser | `the key field is a password and the panel warns that the key is stored in this browser` | `tests/features/settings.test.tsx` | Change `type="password"` to `type="text"`, or delete the warning paragraph. |
+| "Test connection" proves the DRAFT key with `whoami` and reports label, stores and permissions | `"Test connection" proves the DRAFT key with whoami and reports its label, stores and permissions` | `tests/features/settings.test.tsx` | Show a hard-coded "OK" instead of the `WhoAmI`: the label/stores/perms assertions RED. |
+| A failed probe/test shows the service's own words, inline AND through the toast | `a failed "Test connection" shows the service’s own words inline AND through the toast surface` · `a listing failure surfaces the service’s own message, inline AND through the toast surface` · `a failed object read surfaces the service’s own message and saves nothing` · `a failed delete surfaces the service’s own message, never a silent success` · `an upload failure surfaces the service’s own message and writes nothing else` | `tests/features/{settings,files,download}.test.tsx` | `catch {}` the failure (or report only `error.code`): the service message assertion REDs. |
+| After a FAILED request the key is in NO rendered text, NO toast and NO URL | `after a FAILED request the key appears in NO rendered text and NO toast` | `tests/features/settings.test.tsx` | Disable `redactCredential` (Arm D below): `document.body.textContent` and the toast text carry the key. |
+| The settings seam refuses an invalid value LOUDLY and writes nothing | `saving an invalid Base URL is refused LOUDLY and writes nothing` | `tests/features/settings.test.tsx` | Swallow the `writeSettings` throw: no toast, and the pin's `errorSpy` assertion REDs. |
+| The four connection states, and nothing thrown into the shell | `with no key the hook is unconfigured and proves NOTHING with whoami` · `a whitespace-only key is the same honest first run, not a request with a blank credential` · `a stored key becomes ready carrying the WhoAmI, proven through whoami` · `a refused key becomes failed carrying the error, and NOTHING throws into the shell` · `changing the settings proves the NEW key again` | `tests/app/useStore.test.tsx` | Remove the empty-key branch (`whoami` with a blank credential); or let the rejection escape the `.then` handler: the `failed` state never arrives. |
+| The listing shows the count and the four stored facts, with the digest TRUNCATED | `the listing shows the count and each object’s name, size, creation time and TRUNCATED digest` | `tests/features/files.test.tsx` | Render the full digest (or drop `size`/`createdAt`): the `title`/`queryByText` assertions RED. |
+| Refresh re-reads the listing | `Refresh re-reads the listing, so a change made by another program becomes visible` | `tests/features/files.test.tsx` | Point the button at a no-op: the new object never appears. |
+| A zero-byte file is refused with a reason BEFORE any request | `a zero-byte file is refused with a reason BEFORE any request is issued` | `tests/features/files.test.tsx` | Move the `bytes.length === 0` check after the collision listing: `listObjects` is called and the pin REDs. |
+| An unmappable name is an error, never a guess | `a name that cannot map is reported as an error and NEVER guessed into an object name` | `tests/features/files.test.tsx` | `catch` the `ObjectNameMappingError` and substitute a placeholder: the refusal toast disappears and `putObject` is reached. |
+| The name mapping is shown BEFORE anything is written | `an upload shows the name mapping BEFORE anything is written` | `tests/features/files.test.tsx` | Write on pick (skip the review): `putObject` is called before the assertions. |
+| An existing object name REFUSES until the owner confirms, and the confirmation names BOTH | `an upload whose object name ALREADY EXISTS refuses until the owner confirms, and the confirmation names BOTH` | `tests/features/files.test.tsx` | Arm B below: make `unconfirmedOverwrites` return `[]` → the write happens unconfirmed. |
+| A new name needs no confirmation and refreshes the listing | `a NEW name needs no confirmation: the reviewed file is written and the listing refreshes` | `tests/features/files.test.tsx` | Drop the `onUploaded()` refresh: `listObjects` is not called again. |
+| A cancelled open / a discarded review / a cancelled delete toasts NOTHING and issues no request | `a cancelled open dialog issues NO request and shows NOTHING` · `discarding a review is the owner changing his mind: no request, no toast` · `a delete asks first, and a CANCELLED confirmation issues no request and no toast` | `tests/features/files.test.tsx` | Toast on the `cancelled` outcome: `allToasts()` is no longer `''`. |
+| A real failure from the open seam is surfaced, never silent | `a real failure from the open seam is surfaced — never a click that silently did nothing` | `tests/features/files.test.tsx` | Drop the `try`/`catch` around `openFile`: the rejection is unhandled and no toast is recorded. |
+| A confirmed delete destroys the named object and re-reads the listing | `a confirmed delete destroys exactly the named object and re-reads the listing` | `tests/features/files.test.tsx` | Call `deleteObject(target, '')`/skip the refresh: the argument or `listObjects` assertion REDs. |
+| A download is VERIFIED against `x-serverstore-sha256`, and a mismatch writes NOTHING | `a digest MISMATCH refuses the save: unverified bytes are never written` | `tests/features/download.test.tsx` | Arm C below: `if (received !== object.sha256)` → `if (false)` → the bytes reach the anchor. |
+| A verified download goes through the REAL save seam with the object name and exact bytes | `a verified download goes through the save seam with the object name and the exact bytes` | `tests/features/download.test.tsx` | Suggest `file.name`/a MIME type, or pass pre-built bytes: the `anchor.download`/blob assertions RED. |
+| A CANCELLED save toasts nothing, errors nothing, and fetches nothing | `a CANCELLED save produces NO toast and NO error — and fetches nothing` | `tests/features/download.test.tsx` | Build the bytes before the picker: `getObject` is called before the cancel. |
+| A real error never auto-dismisses; the service's own message and a 429's wait are shown | `a real error is shown until the owner dismisses it — it never auto-dismisses` · `a store failure surfaces the service’s own message, with its code` · `a 429 is reported WITH the wait the service asked for, and says it was not retried` | `tests/lib/toast.test.ts` | Drop `duration: Infinity`; report `error.code` instead of `error.message`; drop the retry note. |
+| The credential is redacted from EVERY occurrence, and an empty key redacts nothing | `the key never survives into a toast, even when the service’s message echoes it back` · `the credential is redacted at EVERY occurrence, not only the first` · `an empty stored key redacts nothing, so ordinary text is never mangled` · `the text a caller renders inline is the SAME redacted text the toast shows` | `tests/lib/toast.test.ts` | Arm D below: redaction off. Replace `split/join` with a single `replace`: only the first occurrence goes. |
+| The digest is the PUBLISHED SHA-256, in lowercase hex, for any input | `a known byte string digests to the PUBLISHED SHA-256, in lowercase hex` · `the empty byte string digests to the published empty SHA-256 (hashing is not a size check)` · `any input yields exactly 64 lowercase hex characters — no uppercase, no base64, no padding` | `tests/lib/sha256.test.ts` | Encode with `toString(16)` on the buffer, or hash the text form of the bytes: the published vector REDs. |
+| Sizes and timestamps are deterministic, and a bad value is LOUD or shown as sent | `a byte count reads in binary units, with the service’s own 64 MiB limit legible` · `a size that is not a real byte count is a LOUD refusal, never a plausible 0 B` · `an ISO timestamp reads as the UTC instant the service stored` · `a timestamp that is not a parseable date is shown EXACTLY as sent, never invented` | `tests/lib/format.test.ts` | Use `toLocaleString()` for the timestamp: the UTC assertion REDs on a host in another zone. Return `'0 B'` for a bad size: the `RangeError` pin REDs. |
 
 ## Raw logs
 
@@ -286,3 +312,80 @@ was invisible until an injection aimed at the pin rather than at the code.
 - **Dispatcher cleanup in the same landing:** removed a dead `.gitignore` entry
   (`/.differential-row8/` — the whole `worktrees/` tree is already ignored, so it could
   never match), and `docs/BOARD.md` records the force-push and pin-precision traps.
+
+### 80d7186 — row 9 (the UI slice: settings, listing, upload, download, delete)
+
+- **Gate:** the ONE command, `bash scripts/gate.sh` (cheap `pnpm run typecheck`, then
+  lint + the whole suite), run **in-turn and UN-PIPED** with the output redirected to
+  files rather than filtered — **exit 0**. Counts read from the raw log, not inferred
+  from the exit code (the worktree-isolation TRAP): **16 test files, 127 passed / 127
+  tests**. The baseline before this slice was **9 files / 75 tests**, so the landing's
+  contribution is **7 new files and 52 pins**; every one of the original 9 files is
+  still collected and green. Peak RSS **762,488 KB**, wall **22.70 s**
+  (`/usr/bin/time -v`; the gate itself sets `NODE_OPTIONS=--max-old-space-size=4096`).
+  Raw log kept twice: the git COMMON dir's
+  `/home/administrator/projects/FileStore/.gate-logs/gate.log` and a copy at
+  `/home/administrator/projects/FileStore/worktrees/ui-shell/.gate-logs/gate.log`
+  (that directory is gitignored from the worktree root too — verified with
+  `git check-ignore`).
+- **Rebase before the docs, deliberately:** `origin/main` had advanced by 3 commits
+  (all `docs/BOARD.md`) while this slice was being written, so the branch was rebased
+  onto `6e1287e` BEFORE the docs commit. The source+tests tip is `80d7186` — the sha
+  the docs name — and it is an ancestor of the pushed branch, not a commit that a later
+  rebase would have replaced. The gate above ran on exactly that tree.
+- **Differential** (my own; three injections against the COMMITTED tree, restore from
+  HEAD inside a `trap`, every arm's hash printed BEFORE and AFTER). No two arms share a
+  hash, so none is a VOID probe.
+  - **Arm A — baseline, untouched HEAD:** `src/features/files/upload.ts`
+    `sha256=d9cdade6acc89f838db24acfd0d2319d5cdbcb7a524db2a45b7c9b76fa01cee8`,
+    `src/features/files/download.ts`
+    `sha256=2cf4e989de9b0b219546c2de26e3b56489cf3aa4bdb25f1fcadab78e80e3eec2`,
+    `src/lib/toast.ts`
+    `sha256=c493c69704498a105f7de8fa96ea35320afe1bae07a6b96ba181ff5430545dff` → the
+    four pin files **PASS** (4 files, **38/38** tests, exit 0).
+  - **Arm B — injection: the overwrite gate returns nothing.** `upload.ts`:
+    `(review) => collisions.has(review.objectName) && !confirmed.has(review.objectName)`
+    → `() => false`; `sha256=de40f21c7067b3d70e14faea076f03892687ac63cf208afb8eaaafd821720f86`
+    — a DIFFERENT hash, so not VOID → **RED** (exit 1, **1 failed | 14 passed**):
+    `an upload whose object name ALREADY EXISTS refuses until the owner confirms, and the
+    confirmation names BOTH` — the unconfirmed `PUT` went through. This is exactly the
+    silent clobber ledger row 4 exists to forbid.
+  - **Arm C — injection: the digest comparison disabled.** `download.ts`:
+    `if (received !== object.sha256) {` → `if (false) {`;
+    `sha256=05c8901c1f736dd88a2ea113ae27ba284a68de5510322d59d2ab51736e94c497` —
+    DIFFERENT → **RED** (exit 1, **1 failed | 3 passed**): `a digest MISMATCH refuses the
+    save: unverified bytes are never written` — the mismatched bytes reached the anchor
+    download, i.e. the disk.
+  - **Arm D — injection: credential redaction off.** `src/lib/toast.ts`:
+    `if (key === '') return text;` → `return text;` (the function returns unconditionally);
+    `sha256=4cc2a5684b34352535d3eceeb32ad5f1dbe198b86d0f768b511b22ab4a8e9748` —
+    DIFFERENT → **RED** (exit 1, **4 failed | 15 passed**): `after a FAILED request the key
+    appears in NO rendered text and NO toast`, plus three in `tests/lib/toast.test.ts`
+    (`the key never survives into a toast…`, `the credential is redacted at EVERY
+    occurrence…`, `the text a caller renders inline is the SAME redacted text the toast
+    shows`). Four named pins hold the property from two directions: the composition and
+    the surface.
+  - **Restore:** every arm's file returned to its Arm-A hash
+    (`d9cdade6…`, `2cf4e989…`, `c493c697…`), `git status` clean, and
+    `git show HEAD:<file> | sha256sum` matches each restored file. No browser was
+    started (`ps -eo comm= | grep -cE '^(chrome|chromium|headless_shell|playwright)$'`
+    → `0`), so no tree was owed a kill.
+- **COPIES: 1 — checked, no duplication** (grepped: `crypto.subtle` — ONE site,
+  `src/lib/sha256.ts:25`; `toObjectName` — ONE call site,
+  `src/features/files/upload.ts:71`; `errorMessage` — ONE composition,
+  `src/lib/toast.ts:100`, shared by the toast and the three inline render sites
+  (`src/App.tsx:97`, `src/features/files/useObjects.ts:48`,
+  `src/features/settings/SettingsPanel.tsx:197`); `storeTargetFrom` — ONE
+  settings→`StoreTarget` mapping, `src/app/useStore.ts:51`, used by `src/App.tsx:103`
+  and `SettingsPanel.tsx:79`; `isAbortError` — still ONE predicate,
+  `src/lib/abort.ts:17`, row 8's fold intact with its two callers). The one thing this
+  slice FOLDED is the owner-facing error text: before it, each failure render composed
+  its own string; now the toast and every inline render share `errorMessage`, and the
+  credential redaction rides on that single composition.
+- **What is NOT pinned, and is debt rather than a papered-over gap:** the collision
+  check is read-then-write (another client can win the race — the API has no conditional
+  write); the digest is the service's own header, unsigned, so a party who rewrites both
+  the body and the header is not detected; `showSaveFilePicker` is only ever stubbed, so
+  no byte has been written through a real picker or against the live service; and the
+  whole-app round trip needs the owner's `Arnd` key, which no agent may hold. See
+  `docs/ARCHITECTURE.md` §4.
