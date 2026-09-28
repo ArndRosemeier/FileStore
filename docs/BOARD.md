@@ -43,7 +43,7 @@ is a line, not a paragraph.
 ## Board
 
 ```
-reconciled: 054bebb0e27966e06bae15863058f5fb2e25522e · 2026-09-28T16:25Z
+reconciled: 9a9bb17672004c61dfd996ff12417125a537f799 · 2026-09-28T16:35Z
 
 retired_branch=feat/serverstore-transport
 retired_branch=feat/browser-io-and-settings
@@ -84,6 +84,8 @@ RECOVERY | repo=/home/administrator/projects/FileStore | remote=https://github.c
 ```
 
 ## Guards
+
+- **`GUARD` — an owner's report of another project's state is a CLAIM, verified before anything is built on it.** The folder work began from the owner's line "the ServerStore is raising the limit for names to 1024 right now"; measured, it was in flight, not landed (ServerStore's `main` still read 64). Nothing was built on the assertion: the order was verify the other repo's code → mirror the real rule → build. Verify by re-reading the other project's source before a mirror moves. | src=near-miss, 2026-09-28
 
 - **`GUARD` — the suite lock.** `scripts/gate.sh` takes an atomic `mkdir` lock at
   `<repo>/.gate-lock` (the git COMMON dir, so it is the same path from every worktree);
