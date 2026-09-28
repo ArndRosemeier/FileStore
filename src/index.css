@@ -1,0 +1,32 @@
+@import 'tailwindcss';
+
+/*
+ * FileStore's ONE stylesheet. Tailwind v4 reads this file (`.prettierrc.json`
+ * points the tailwind plugin at it).
+ *
+ * The app is a utility surface, not a document: dark by default, and the
+ * palette is declared here as CSS custom properties rather than repeated as
+ * literal colours across components.
+ */
+@theme {
+  --color-surface: oklch(0.19 0.012 265);
+  --color-surface-raised: oklch(0.24 0.014 265);
+  --color-edge: oklch(0.32 0.016 265);
+  --color-ink: oklch(0.96 0.004 265);
+  --color-ink-muted: oklch(0.72 0.012 265);
+  --color-accent: oklch(0.72 0.13 250);
+  --color-danger: oklch(0.66 0.19 25);
+}
+
+html {
+  color-scheme: dark;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background: var(--color-surface);
+  color: var(--color-ink);
+  font-family:
+    ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+}

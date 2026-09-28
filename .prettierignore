@@ -1,0 +1,6 @@
+dist
+coverage
+node_modules
+worktrees/
+.gate-logs/
+pnpm-lock.yaml

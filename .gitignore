@@ -1,0 +1,15 @@
+# Build output
+dist/
+coverage/
+
+# Dependencies
+node_modules/
+
+# The process machinery: never committed, never linted.
+/.gate-logs/
+/.gate-lock/
+/worktrees/
+
+# Local scratch
+*.local
+.DS_Store

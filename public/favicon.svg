@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="FileStore">
+  <rect width="32" height="32" rx="7" fill="#1f2430" />
+  <path
+    d="M10 6h8l5 5v15a1 1 0 0 1-1 1H10a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1Z"
+    fill="none"
+    stroke="#7fb2f0"
+    stroke-width="2"
+    stroke-linejoin="round"
+  />
+  <path d="M18 6v5h5" fill="none" stroke="#7fb2f0" stroke-width="2" stroke-linejoin="round" />
+</svg>
