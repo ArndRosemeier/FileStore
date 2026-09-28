@@ -95,14 +95,19 @@ have been reported against `main`, and `main`'s counts would have described thre
 trees at once.
 
 - **Arm A — baseline, hash printed, suite run whole:** `vite.config.ts`
-  `sha256=2d5f0a4a…` → **2 test files** (this tree's own two).
-- **Arm B — injection: `'**/worktrees/**'` deleted from `test.exclude`:** hash
-  `sha256=<printed below>` → the pin file goes **RED** (no `worktrees` in the
-  exclude block) AND the whole suite collects **4 test files** — the two
-  worktrees' copies are back.
-- **Arm C — restored from HEAD:** hash returns to Arm A's value; suite green at
-  **2/2**. Restore is from HEAD on a COMMITTED tree, never `git checkout -- <path>`
-  in a tree with uncommitted work.
+  `sha256=bf6da9f7dd52eb81c1c5184aa7a1d9fb684b57ffe6cbe494ac193a69b62d6516` → pin
+  **PASS** (exit 0); whole suite **2 test files, 2/2 tests**, exit 0.
+- **Arm B — injection: `'**/worktrees/**',` deleted from `test.exclude`:** hash
+  `sha256=63762060c274bb8d95b039eda063dece5aa8c896d6c264a3299dd69537d3e4df` — a
+  DIFFERENT hash, so the arms are not VOID → the pin goes **RED** (exit 1, "Failed
+  Tests 1") AND the whole suite collects **4 test files** (`1 failed | 3 passed`):
+  the two worktrees' copies are back, which is the defect itself, observed.
+- **Arm C — restored from HEAD:** hash returns to
+  `bf6da9f7dd52eb81c1c5184aa7a1d9fb684b57ffe6cbe494ac193a69b62d6516`, identical to
+  Arm A; suite **2/2**, exit 0. The injection ran under the gate lock
+  (`.gate-lock` held by the differential's own pid) and the restore was in a
+  `trap`, from HEAD on a COMMITTED tree — never `git checkout -- <path>` in a tree
+  with uncommitted work.
 - **Why the pin reads the config as TEXT:** importing `vite.config.ts` and calling
   it from inside the runner dies with `TypeError: The URL must be of scheme file`
   (`fileURLToPath(new URL('./src', import.meta.url))`, because vitest's transform
