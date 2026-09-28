@@ -43,7 +43,7 @@ is a line, not a paragraph.
 ## Board
 
 ```
-reconciled: a14730a840691c7697734dae0401010d22dd92b6 · 2026-09-28T15:05Z
+reconciled: 4146232665966d8cc53a6148f78d27c039b229c6 · 2026-09-28T15:20Z
 
 retired_branch=feat/serverstore-transport
 retired_branch=feat/browser-io-and-settings
@@ -63,7 +63,9 @@ TRAP | the dispatcher labelled a probe "a bad key proves the store exists becaus
 TRAP | a structural pin that greps text must strip comments on EVERY arm it greps. `tests/architecture/one-fetch.test.ts` stripped block comments for its `Authorization` check but read raw text for its `fetch(` check, so ONE block comment merely MENTIONING a fetch call in `src/App.tsx` turned the pin RED with no call in existence — a false red the next writer would have chased as a missing pin. Found by the dispatcher's own differential (injections must aim at the PIN, not only at the code); fixed forward and re-proved both ways (comment stays green `f94afac2…`, a real second call still reds `eb0c647f…`). | src=the dispatcher's verification of row 7
 TRAP | a writer force-pushed its OWN feature branch (`--force-with-lease`) to fix a markdown typo in its docs commit, and reported it. Harmless HERE — nobody had based work on that branch — but it rewrote a pushed commit, which the host rules forbid on `main` and permit elsewhere only when no one else has built on it. **MEASURED evidence it is real:** the superseded docs commit `06106362f1ecc6836405884cb95d7ec1a08d4693` is in the object store but is an ancestor of NO branch, while the final `772cc74` is the one in `main`. Rule: a rewrite of a pushed branch is a decision to REPORT, never a silent convenience — and an integrated landing must be verified against the FINAL tip, not against whatever a fetch happened to catch mid-flight. | src=writer A's report, row 7; the dangling sha measured by the dispatcher
 TRAP | "docs amended in the SAME commit as the change" CANNOT hold when the docs must name that commit's own sha. Both writers independently split source and docs into two commits on one branch, as the day-1 scaffold did. `docs/BRIEF.md` now says so. | src=both writers' errata, same finding
-QUEUE | row=9 | the UI slice: the app shell, settings panel, upload/list/retrieve flows — replaces the day-1 placeholder src/App.tsx. Dispatched after rows 7 and 8 land. | src=the owner's request
+LANDED | row=none (dispatcher: the pin fix + the record) | sha=4146232665966d8cc53a6148f78d27c039b229c6 | verify=MY OWN full gate on the pushed HEAD: exit 0 · 9 files · 75/75 tests · peak 741,480 KB · raw log .gate-logs/gate.log | arms=the pin-precision arms recorded in TESTING (baseline 970c1f13… → comment f94afac2… exit 0 → real fetch eb0c647f… RED → restored 970c1f13…) | note=this commit also carries the correction of a sha the dispatcher had FABRICATED, and the dead .gitignore entry the row-8 writer left
+
+IN-FLIGHT | row=9 | slice=ui-shell | session=eb96f524-06be-4da7-9fe2-d294c1d8e0ac | worktree=/home/administrator/projects/FileStore/worktrees/ui-shell | branch=feat/ui-shell | base=origin/main@4146232665966d8cc53a6148f78d27c039b229c6 | state=RUNNING | scope=src/App.tsx + src/main.tsx + src/index.css + src/lib/{toast,sha256,format}.ts + src/app/useStore.ts + src/features/** + tests/app/** + tests/features/** + tests/lib/{toast,sha256,format}.test.ts ONLY — the four landed seam modules are FROZEN
 QUEUE | row=none | publish to https://apps.futuremagic.de/filestore/ (base is already /filestore/) and refresh the futuremagic hub. Dispatcher's own step. | src=apps-publish skill
 QUEUE | row=none | the live end-to-end round trip: the owner pastes his `Arnd` key into the published app's Settings and uploads/retrieves a file. The store exists and the boundary is proved; the round trip itself needs the one secret, which the dispatcher must never hold. | src=docs/TESTING.md
 
