@@ -13,7 +13,7 @@
 #   BOARD_FILE           [docs/BOARD.md]
 #   BOARD_REMOTE         [origin]
 #   BOARD_BRANCH         [main]
-#   BOARD_SUITE_PATTERN  pgrep pattern for suite processes [vites[t]|jest|pytest]
+#   BOARD_SUITE_PATTERN  pgrep pattern for suite processes [[v]itest|[j]est|[p]ytest]
 #   GATE_LOCK_DIR        [<repo>/.gate-lock]
 
 set -u
@@ -21,7 +21,14 @@ set -u
 BOARD_FILE="${BOARD_FILE:-docs/BOARD.md}"
 REMOTE="${BOARD_REMOTE:-origin}"
 BRANCH="${BOARD_BRANCH:-main}"
-SUITE_PATTERN="${BOARD_SUITE_PATTERN:-vites[t]|jest|pytest}"
+# EVERY alternative is bracketed on its FIRST character. MEASURED 2026-09-28: with the
+# upstream `vites[t]|jest|pytest`, the bare `jest`/`pytest` alternatives matched the
+# CALLER's own command text — a `suites: 1` was reported with no suite process in
+# existence, because the invoking command line happened to contain the string
+# "node/vitest" (which `vites[t]` matches). A count that can match its own argv is not
+# a count. Residual, stated honestly: a caller whose command text literally spells a
+# suite name can still inflate this; confirm with `ps -eo comm=` when it matters.
+SUITE_PATTERN="${BOARD_SUITE_PATTERN:-[v]itest|[j]est|[p]ytest}"
 
 GIT_COMMON="$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)"
 if [ -n "$GIT_COMMON" ]; then
