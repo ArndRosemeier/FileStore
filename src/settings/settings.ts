@@ -37,8 +37,10 @@ export const settingsSchema = z.strictObject({
   baseUrl: z.url(),
   /**
    * The store objects live in. A legal ServerStore name
-   * (`[a-z0-9][a-z0-9._-]{0,63}`) — the same language `src/lib/name.ts` maps
-   * object names into, and the store name is provisioned by the operator.
+   * (`[a-z0-9][a-z0-9._-]{0,1023}`, 1–1024 characters) — the same language
+   * `src/lib/name.ts` maps object names into, and the store name is provisioned by
+   * the operator. The bound is a MIRROR of ServerStore's own rule, so that module is
+   * where the number is checked, not here.
    */
   store: z.string().min(1),
   /** The scoped access key (`ssk_…`). A credential: see the header. */

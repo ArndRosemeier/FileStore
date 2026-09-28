@@ -39,11 +39,28 @@ written, each of which cost something to learn:
 - **A key is scoped to a SET of stores and carries a subset of
   `read|write|delete|admin`.** There is no user, no session, no cookie — the key **is**
   the principal. This app needs only `read`, `write`, `delete` on `files`.
-- **Object names are `[a-z0-9][a-z0-9._-]{0,63}`** — lowercase letters, digits, `.`,
-  `_`, `-`; 1–64 characters; must start with a letter or digit; no leading `.`; `.`
+- **Object names are `[a-z0-9][a-z0-9._-]{0,1023}`** — lowercase letters, digits, `.`,
+  `_`, `-`; 1–**1024** characters; must start with a letter or digit; no leading `.`; `.`
   and `..` are refused. A real file name is therefore **not** usually a legal object
   name. Mapping is the job of ONE seam (`src/lib/name.ts`) — never inline at a call
   site, never a silent second rule.
+  **The bound is a MIRROR of another project's contract**, not this app's choice: the
+  source of truth is `~/projects/ServerStore/src/core/validate.ts` (`NAME_MAX_LENGTH`,
+  widened 64 → 1024 in commit `26f9e46`, 2026-09-28). `src/lib/name.ts` names that source
+  and a pin holds the mirror equal to the server's rule at both edges — so if ServerStore
+  moves it again, the pin is what tells us. **A mirror nobody checks is a lie waiting to
+  happen.**
+- **Folders are a NAMING CONVENTION, not storage.** ServerStore has no directories, no
+  metadata and no rename route, and its only listing filter is `?prefix=`. The convention
+  (`src/lib/folder.ts`, ledger row 10) is `--` as the separator at every level:
+  `docs--reports--q1--report.pdf` is `report.pdf` in the folder `docs/reports/q1`. It is
+  unambiguous **because `toObjectName` can never emit a double dash** — `collapseDashes`
+  collapses runs of `-`, which is what RESERVES the separator. A **trailing** `--`
+  (`docs--reports--`) is the marker for a folder that exists and holds nothing, and it is
+  unproducible by mapping for the same reason. **Both of those are pinned properties, not
+  prose**: if the collapse ever goes away, the separator stops being reserved. There is no
+  artificial depth cap; the 1024-character budget is the bound, and it is **shared**
+  between the folder path and the file name.
 - **`PUT …/objects/{name}` is an UNCONDITIONAL OVERWRITE and an empty body is
   refused** (`400 invalid_body`). There is no create-only variant, no `ETag`, no
   `If-Match`, no version. So **an upload that would overwrite an existing name must
