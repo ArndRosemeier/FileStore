@@ -122,6 +122,12 @@ arm proves the pins hold the property. Both are needed.
 | Deleting a folder confirms with the COUNT, and a partial failure reports what remains rather than claiming success | `deleting a folder confirms with the COUNT, and a partial failure reports what remains instead of claiming success` | `tests/features/folders.test.tsx` | **Arm D below**: remove the stop → the loop keeps deleting and the toast claims more than happened → RED. |
 | A `429` while deleting a folder is reported with the wait and STOPS | `a 429 while deleting a folder is reported with the wait and stops` | `tests/features/folders.test.tsx` | **Arm D below**: the second `DELETE` is issued → RED on the call count, and the wait text rides the ONE `failureDetail` composition. |
 | Download and delete of a FILE inside a folder use the FULL object name | `downloading or deleting a file inside a folder uses the FULL object name` | `tests/features/folders.test.tsx` | **Arm C below**: address the file part instead → RED, alone (12 green). |
+| A mapped FILE PART can never contain the chunk tokens — and the tokens are reserved only WITHIN one name segment | `a mapped FILE PART can never contain the manifest token --manifest (the reserved-token property)` · `a mapped FILE PART can never contain the part token --part- (the reserved-token property)` · `a mapped FILE PART can never contain the folder separator, which is what reserves both chunk tokens` · `the tokens are reserved only WITHIN one name segment: a folder boundary CAN spell --manifest or --part-, so the name predicates are a HEURISTIC (the known ambiguity)` | `tests/lib/chunk.test.ts` | **Arm B below**: stop collapsing runs of `-` → the three reserved-token pins RED (17 neighbours green, the ambiguity pin among them). **Arm C1 below**: drop the zero padding → 4 name-format pins RED, 16 green. |
+| A big file is planned in 64 MiB parts, in order, tiling it EXACTLY once | `planChunks splits a total size into parts of at most 64 MiB, in order, with contiguous byte ranges that cover the file EXACTLY once` · `a file of exactly the part size is ONE part; one byte more is TWO` · `part names are zero-padded so lexical order equals part order` · `planChunks REFUSES an object name with no room for the chunk suffix, an illegal generation and a bad size` | `tests/lib/chunk.test.ts` | **Arm C below (redone)**: emit a zero-length extra part for the PART−1 case → the coverage pin ALONE RED, 19 green. The FIRST Arm C crashed collection (`Tests no tests`) — a collection crash is not a named red, so it was REDONE (see the section). |
+| The manifest round-trips through its codec, and a malformed or wrong-version one is refused LOUDLY, never defaulted | `the manifest round-trips through encodeManifest and parseManifest with names, sizes and hashes intact` · `a malformed manifest is refused LOUDLY, never defaulted to an empty part list` · `a manifest whose version is not this app version is refused LOUDLY, naming the version` · `a manifest that does not describe its own object name, generation, total size or layout is refused LOUDLY` | `tests/lib/chunk.test.ts` | Hand the codec `'[]'`, a wrong version, an unknown field, a wrong digest, or a self-inconsistent layout: `parseManifest` throws `ChunkManifestError` in every case — it never yields an empty part list. |
+| The chunked write commits the manifest LAST, and a `413` is loud, named and NEVER retried | `the chunked write commits the manifest LAST, after every part, and records the SERVICE own digest for each part` · `a 413 on a part is reported as the server cap possibly being LOWER than the part size, naming the part, and is NEVER retried` · `a NON-413 part failure keeps its own reason, so the 413 rule is specific and not a blanket wrapper` | `tests/lib/chunk.test.ts` | **Arm D below**: drop the 413 mapping → the 413 pin ALONE RED, 19 green, and its `writePart` call log proves the refused part was attempted ONCE and the manifest was never written. The control pin (a non-413 error keeps its own reason) stays green in the same arm. |
+| `analyseChunks` judges COMPLETE / INCOMPLETE / MALFORMED and names the orphans | `analyseChunks reports a manifest COMPLETE only when every part it names is present with the recorded size and hash` · `analyseChunks reports INCOMPLETE, naming what is missing, when a part is absent, and MALFORMED when the manifest itself cannot be read` · `analyseChunks lists the parts that belong to NO manifest — the orphans an interrupted upload leaves` | `tests/lib/chunk.test.ts` | Remove `&& !claimed.has(name)` from the orphan filter: every claimed part becomes an orphan → the orphan pin RED. The manifest DOCUMENTS are a separate argument because a listing carries no content, so completeness cannot be judged from it. |
+| The streaming save writes every part in order, closes exactly once, and never materialises a part as an array | `the streaming save writes every part, in order, and closes the writable exactly once` · `the streaming picker is called BEFORE any part is built, so a cancel never pays for the file` · `a cancelled streaming picker is SILENT and writes nothing` · `the streaming save's no-picker path accumulates BLOBS, never arrays: no part is materialised as an array` · `a real streaming failure keeps its own reason, and aborts the writable rather than leaving it open` | `tests/lib/saveFileStreaming.test.ts` | **Arm E below**: materialise each part with `await part.arrayBuffer()` → `Blob.prototype.arrayBuffer` is called 3 times → the no-array pin ALONE RED, the 4 picker-path pins green. |
 
 ## Raw logs
 
@@ -662,3 +668,112 @@ likely to be brand new and therefore wrong.
   count is a tally of the last listing, and the service documents no order or aggregate;
   the first upload into a folder leaves its marker in place; and move/rename stays
   DEFERRED (3N requests against the 600/min limit).
+
+### 3aa8864 — row 12, slice A (the chunking convention and the streaming save)
+
+- **Gate:** the ONE command, `bash scripts/gate.sh` (cheap `pnpm run typecheck`, then
+  lint + the whole suite), run **in-turn, foreground and UN-PIPED**, output redirected
+  to a file — **exit 0**. Counts read from the raw log, not inferred from the exit code
+  (the worktree-isolation TRAP): **20 test files, 183 passed / 183 tests**. The baseline
+  on the base (`9bb24da`) is **18 files / 158 tests**, so this landing adds **2 test
+  files and 25 pins** (`tests/lib/chunk.test.ts` 20, `tests/lib/saveFileStreaming.test.ts`
+  5), and every one of the 18 original files — including the 9 `saveFile` pins — is still
+  collected and green. Peak RSS **795,052 KB**, wall **27.34 s** (`/usr/bin/time -v`; the
+  gate itself sets `NODE_OPTIONS=--max-old-space-size=4096`). Raw log `.gate-logs/gate.log`
+  — the git COMMON dir's, so every worktree shares one log. No browser was started (every
+  pin is jsdom with a stubbed picker and an injected writer), so no browser tree was owed
+  a kill: `ps -eo comm= | grep -cE '^(chrome|chromium|headless_shell|playwright)$'` → `0`.
+- **Rebase before the docs, deliberately:** `origin/main` advanced `9bb24da` → `c44f31a`
+  (the dispatcher's in-flight board record) while this slice was written, so the branch was
+  rebased onto it BEFORE the docs commit. The source+tests tip is **`3aa8864`** — the sha
+  these docs name — and it is an ancestor of the pushed branch, not a commit a later rebase
+  would replace. The gate and every arm ran on that tree; the rebase changed only the
+  parent, re-measured: `git show 3aa8864:src/lib/chunk.ts | sha256sum` equals the Arm-A
+  `c28b7d40…`.
+- **`COPIES: 2→1 — the anchor-download composition** (`saveFile`'s whole-bytes path and
+  the new streaming path now share the ONE private `anchorDownloadBlob`; before this
+  landing the anchor markup lived once, and the streaming variant would have been a second
+  hand-rolled anchor, which rule 4 forbids). **Checked, no duplication** (grepped):
+  `CHUNK_PART_SIZE` — ONE definition, `src/lib/chunk.ts:96`, nothing else in `src/`
+  restates 64 MiB; `--manifest`/`--part-`/`--g` — ONE definition each, and no other `src/`
+  file spells them; `chunkPartName`/`chunkManifestName` — the ONE name composition, called
+  by both `planChunks` and `buildManifest`'s invariant check rather than re-spelled;
+  `OBJECT_NAME_MAX_LENGTH` — still the ONE name bound, imported by `chunk.ts` from
+  `src/lib/name.ts` rather than retyped as 1024; the 413 rule — ONE site,
+  `writeChunkedObject`; `parseManifest` — the ONE reader, so slice B cannot invent a
+  second one.
+- **Differential** (my own; **FIVE** injections across the three files, against the
+  COMMITTED tree `3aa8864`, restore from HEAD inside a `trap`, every arm's sha256 printed
+  BEFORE and AFTER, and every injection asserting its anchor matched exactly ONCE). No two
+  arms share a hash, so none is a VOID probe. The scratch harness lived inside the writer
+  worktree and was deleted before the report.
+  - **Arm A — baseline, untouched HEAD:** `src/lib/chunk.ts`
+    `sha256=c28b7d40532a0b8f9045f3ce1cd4d367f217066a69e44c13aa98910655a11b28`,
+    `src/lib/name.ts` `sha256=cc7c45490f5b41f49f0efa5d658ad1bc813054221c948e31f6885140c256b62e`,
+    `src/lib/saveFile.ts` `sha256=2baa99fcc2dd7823cacff864f30e6cc70f05eae3274a3c4562719f3517edc6c8`
+    → the three pin files **PASS** (3 files, **34/34** tests, exit 0).
+  - **Arm B — injection: `collapseDashes` stops collapsing.** `src/lib/name.ts`
+    `cc7c4549…` → `return value.replace(/-+/g, '-');` changed to `return value;` →
+    `sha256=28e186d2628ac55b48886f07c64a593eefd01691320ec52771bbec3ad46d6d0e` — DIFFERENT,
+    so not VOID (and identical to row 10's Arm A, as it must be: it is the same edit) →
+    `tests/lib/chunk.test.ts` **RED** (exit 1, **3 failed | 17 passed**): the three
+    reserved-token pins, with `AssertionError: expected 'my-report--final-.pdf' not to
+    contain '--'`. The ambiguity pin and every plan/manifest/analysis/write pin stayed
+    green, so the red is the token property and not a broken file.
+  - **Arm C — FIRST ATTEMPT, VOID AS A PIN ARM, REDONE.** `src/lib/chunk.ts`
+    `c28b7d40…` → `end: Math.min(totalSize, start + CHUNK_PART_SIZE),` changed to
+    `end: start + CHUNK_PART_SIZE,` → `sha256=7eed57746ade5d05205f3445866410b7285dde6cae4c26d081d61927774f4958`
+    — a DIFFERENT hash, but the run reported **`Test Files 1 failed | Tests no tests`**:
+    the file crashed at COLLECTION, because `analyseChunks`' fixture builds a real
+    `planChunks`/`buildManifest` at module scope and the over-running plan made
+    `buildManifest` throw while the suite was being collected. **A collection crash runs NO
+    named pin**, so it is not evidence — the same class as a no-op injection (row 10 slice
+    1) and it was REDONE rather than reported. *Lesson: an injection that breaks a
+    module-scope fixture produces `no tests`, which the grep for a named pin must treat as
+    a wrong-probe signal.*
+  - **Arm C — redone, and specific:** `partCount` given a guard that adds a zero-length
+    extra part only for the `PART−1` case —
+    `Math.ceil(totalSize / CHUNK_PART_SIZE)` → `… + (totalSize === CHUNK_PART_SIZE - 1 ? 1 : 0)`;
+    `sha256=cfafcca65e0b310af37fbc5616345d4ff51222f523a9db18e011923c60db78f2` — DIFFERENT →
+    **RED** (exit 1, **1 failed | 19 passed**) on exactly `planChunks splits a total size
+    into parts of at most 64 MiB, in order, with contiguous byte ranges that cover the file
+    EXACTLY once` (`expected [ { …(4) }, { …(4) } ] to have a length of 1 but got 2`). The
+    guard leaves the shared `PART+7` fixture intact, so the arm reds ONE pin and nothing
+    else.
+  - **Arm C1 — injection: part indices lose their zero padding.** `String(index).padStart(CHUNK_PART_INDEX_DIGITS, '0')`
+    → `String(index)`; `sha256=b8e7028dcb1bafeed028009a7f0f708578ef669d46a822e4bb67da5f5c203186`
+    — DIFFERENT → **RED** (exit 1, **4 failed | 16 passed**): the zero-padding pin, plus the
+    ambiguity, round-trip and orphan pins, which all hard-code the padded name in their
+    fixtures. The coupling is honest and recorded — the padded FORM appears in four
+    fixtures — and the other 16 pins stayed green.
+  - **Arm D — injection: the 413 rule is dropped.** `src/lib/chunk.ts` `c28b7d40…` → the
+    `if (errorCode(error) === 'payload_too_large') { throw new ChunkPartTooLargeError(...) }`
+    block deleted, so the raw error propagates →
+    `sha256=f7aae0c6fecf13033a2e0c3c291943557c7738079d5bc3300ae5d36e58af0639` — DIFFERENT →
+    **RED** (exit 1, **1 failed | 19 passed**) on exactly `a 413 on a part is reported as
+    the server cap possibly being LOWER than the part size, naming the part, and is NEVER
+    retried` (`expected Error: ServerStore refused (payload_too_l… { code: '…' } to be an
+    instance of ChunkPartTooLargeError`). The control pin beside it — a NON-413 failure
+    keeps its own reason — stayed GREEN, so the arm is specific to the 413 rule.
+  - **Arm E — injection: the streaming anchor materialises each part as an array.**
+    `src/lib/saveFile.ts` `2baa99fc…` → `parts.push(part)` changed to
+    `parts.push(new Blob([await part.arrayBuffer()]))` →
+    `sha256=dd16744d8b905f9c171e3c7b1899b03e0156bd159409fe4b5b1f6b0898139983` — DIFFERENT →
+    **RED** (exit 1, **1 failed | 4 passed**) on exactly `the streaming save's no-picker
+    path accumulates BLOBS, never arrays: no part is materialised as an array`
+    (`expected "arrayBuffer" to not be called at all, but actually been called 3 times`).
+    The four picker-path pins stayed green — the arm touches only the anchor branch.
+  - **Restore:** every file returned to its Arm-A hash (`chunk.ts` `c28b7d40…`,
+    `name.ts` `cc7c4549…`, `saveFile.ts` `2baa99fc…`), the three pin files re-ran
+    **34/34 green**, and `git status --porcelain` was clean apart from the scratch
+    directory, which was removed before the report. No browser was started
+    (`ps -eo comm= | grep -cE '^(chrome|chromium|headless_shell|playwright)$'` → `0`).
+- **What is NOT pinned, and is debt rather than a papered-over gap:** every chunk pin is
+  **unit-level** — jsdom plus an INJECTED `ChunkWriter` — so no part has been PUT to the
+  live service, no chunked file has been saved through a real picker, and the 64 MiB part
+  assumption and the Cloudflare 100 MB wall are taken from the two services' own docs
+  rather than exercised end to end; the name predicates are a HEURISTIC because a folder
+  boundary can spell the tokens (`docs--manifest`), so slice B must confirm a candidate by
+  reading it; integrity is PER-PART with no whole-file digest (WebCrypto has no incremental
+  digest); and the anchor path's peak memory is BROWSER behaviour (whether Blob storage
+  spills to disk) that this app cannot guarantee. See `docs/ARCHITECTURE.md` §4.

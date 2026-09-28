@@ -12,7 +12,7 @@ Dependencies point **downward only**. A lower layer never imports an upper one.
 | --- | --- | --- |
 | **UI** — `src/App.tsx`, `src/features/**` | React components and the flows (settings, upload, list, retrieve). Owns user-visible copy and confirmations. | everything below |
 | **App services** — `src/settings/**`, `src/lib/toast.ts`, `src/app/**` | The app's own state (settings, the proven connection) and its ONE error/notification surface. | `lib/`, `server/` |
-| **Seams** — `src/server/**`, `src/lib/name.ts`, `src/lib/folder.ts`, `src/lib/saveFile.ts`, `src/lib/openFile.ts`, `src/lib/sha256.ts`, `src/lib/format.ts` | The ONE place each external boundary is spoken to (ServerStore's HTTP API, the object-name mapping, the folder naming convention, the browser's save and open dialogs, the digest algorithm) — plus the pure, deterministic display formatters. | nothing above; `zod` and the platform only |
+| **Seams** — `src/server/**`, `src/lib/name.ts`, `src/lib/folder.ts`, `src/lib/chunk.ts`, `src/lib/saveFile.ts`, `src/lib/openFile.ts`, `src/lib/sha256.ts`, `src/lib/format.ts` | The ONE place each external boundary is spoken to (ServerStore's HTTP API, the object-name mapping, the folder naming convention, the big-file chunking convention, the browser's save and open dialogs, the digest algorithm) — plus the pure, deterministic display formatters. | nothing above; `zod`, the platform and the sibling seams (`chunk.ts` reuses the name seam's bound) |
 
 The rule that makes this map worth having: **the UI never calls `fetch`, never reads
 `settings.key`, never builds an object name, and never composes its own error text.**
@@ -33,7 +33,8 @@ Each of those has exactly one home below it.
 | Display formatting | `src/lib/format.ts` | [src/lib/format.ts](src/lib/format.ts) | **LANDED 80d7186** — `formatByteSize` (33), `formatTimestamp` (67), `shortSha256` (84), `formatObjectCount` (90); 92 lines. Pure and deterministic: binary sizes, UTC timestamps, no `Intl`/locale/time zone. A size that is not a byte count is a LOUD `RangeError`, never `0 B`. |
 | Talking to ServerStore | `src/server/store-client.ts` | [src/server/store-client.ts](src/server/store-client.ts) | **LANDED 6718f9d.** The ONE `fetch` to the store: `requestRaw` L148, `whoami` L238, `healthz` L248, `listObjects` L271, `getObject` L288, `putObject` L323, `deleteObject` L347 (356 lines). Puts the key in exactly ONE header (`Authorization: Bearer`); never logs it, never puts it in a URL or a message. Reports `429`/`5xx` with the `Retry-After`; **never retries**. A zero-byte `PUT` is refused before any request; a `GET` without a valid `x-serverstore-sha256`, or with zero bytes, is refused. |
 | ServerStore's error vocabulary | `src/server/store-errors.ts` | [src/server/store-errors.ts](src/server/store-errors.ts) | **LANDED 6718f9d.** The service's `{error:{code,message}}` envelope → one typed `ServerStoreError` (`class` L71, `errorFromResponse` L157, `envelopeFromBody` L133, `retryAfterSecondsFrom` L120; 180 lines). `.code` is the ONE branchable field — the service's documented code (`conflict` included), plus the app-side `transport` and `invalid-response`. The service's own words are kept verbatim in `.serverMessage` for display; a `429`'s wait is in `.retryAfterSeconds`. |
-| Putting bytes on disk | `src/lib/saveFile.ts` | [src/lib/saveFile.ts](src/lib/saveFile.ts) | **LANDED ad5c839** — `saveFile` (111). `showSaveFilePicker` where present, a temporary `<a download>` otherwise; the picker runs BEFORE `buildBytes()`. A cancelled picker is an OUTCOME (`{status:'cancelled'}`), not an error; a real failure throws. |
+| Putting bytes on disk | `src/lib/saveFile.ts` | [src/lib/saveFile.ts](src/lib/saveFile.ts) | **LANDED ad5c839; the STREAMING variant added at `3aa8864` (ledger row 12, slice A).** `saveFile` (L111) takes `buildBytes()` and is UNCHANGED: `showSaveFilePicker` where present, a temporary `<a download>` otherwise; the picker runs BEFORE `buildBytes()`. A cancelled picker is an OUTCOME (`{status:'cancelled'}`), not an error; a real failure throws. `saveFileStreaming` (L154) takes `buildParts: () => AsyncIterable<Blob>` instead — each part reaches `handle.createWritable()` as it arrives and the writable is closed EXACTLY ONCE, or the parts accumulate as `Blob`s for the anchor (NEVER raw arrays), so peak memory is ONE part and the browser decides whether Blob storage spills to disk. The same two rules hold (picker first; cancel silent). The whole-bytes anchor now routes through the ONE `anchorDownloadBlob` helper — a fold, not a second anchor. |
+| Chunking a big file | `src/lib/chunk.ts` | [src/lib/chunk.ts](src/lib/chunk.ts) | **LANDED `3aa8864` (ledger row 12, slice A).** The ONE convention for a file too big for one request. Part size is EXACTLY the service's 64 MiB default (`CHUNK_PART_SIZE`, no margin); layout is manifest `<object>--manifest` and parts `<object>--g<generation>--part-000000`, zero-padded so lexical order IS part order. `planChunks` (the ordered write plan), `buildManifest`/`encodeManifest`/`parseManifest` (zod-validated, LOUD on malformed/wrong version, never defaulted), `isChunkManifestName`/`isChunkPartName`/`chunkedObjectNameFor`, `writeChunkedObject` (parts first, manifest LAST through an injected `ChunkWriter`; a `413` becomes a loud `ChunkPartTooLargeError` naming the part, NEVER retried or split smaller), and `analyseChunks(entries, manifestDocuments)` → per manifest COMPLETE / INCOMPLETE (naming what is missing/mismatched) / MALFORMED, plus the parts that belong to NO manifest. `analyseChunks` needs the manifest DOCUMENTS because a listing carries only name/size/sha256, never content. There is NO whole-file digest (WebCrypto has no incremental digest), so integrity is PER-PART against the service's own `x-serverstore-sha256`. The name predicates are a HEURISTIC — see §4. |
 | Taking files in from disk | `src/lib/openFile.ts` | [src/lib/openFile.ts](src/lib/openFile.ts) | **LANDED ad5c839** — `openFile` (164), `OpenFileRequest` (50), `OpenedFile` (62). `showOpenFilePicker` where present, a hidden `<input type=file>` otherwise; MULTIPLE files, forwarded to both branches. Same cancel-is-silent rule. |
 | The store's display name | — | — | none yet: the store name is a setting with the default `files`. |
 
@@ -169,3 +170,37 @@ Each of those has exactly one home below it.
   as a nested path. What is pinned is that THIS app's mapper can never PRODUCE one
   (the reserved-separator property); a foreign name is interpreted by the
   convention, not validated against an owner's intent.
+- **The chunk tokens are reserved only WITHIN ONE NAME SEGMENT, so name detection
+  is a HEURISTIC (row 12 slice A, `3aa8864`).** `toObjectName` can never emit `--`
+  inside one segment, so a mapped FILE PART can never contain `--manifest` or
+  `--part-`. But the tokens are appended AFTER the whole object name, and a full
+  name carries folder separators: `toObjectName('manifest', ['docs'])` IS
+  `docs--manifest`, and a file `part-000000` in folder `docs/ga1b2c3d4` IS
+  `docs--ga1b2c3d4--part-000000`. So `isChunkManifestName`/`isChunkPartName` can
+  match an ordinary file. Slice B MUST confirm a candidate by reading it and
+  running `parseManifest` (which checks the manifest names its own object), and a
+  false positive is MALFORMED — never a silent sweep or delete. Pinned, with the
+  ambiguity named, in `tests/lib/chunk.test.ts`; a future convention change that
+  removes the ambiguity should update that pin.
+- **Integrity is PER-PART, and there is no whole-file digest — by physical
+  necessity, not by choice.** `crypto.subtle.digest` is one-shot and WebCrypto has
+  no incremental digest, so hashing a 2 GB file would need all of it in memory.
+  Each part is verified against the service's own `x-serverstore-sha256` on write
+  (`writeChunkedObject` records it) and on read (slice B), and the manifest records
+  the ordered full part names, sizes and hashes. That proves each part arrived
+  intact; it does NOT prove the set of parts is the file the owner picked beyond
+  what the manifest itself records.
+- **A `413` is the ONLY signal that the server's cap moved, and the anchor path's
+  memory safety is BROWSER behaviour this app cannot guarantee.** No route exposes
+  the service's cap, so `CHUNK_PART_SIZE` (64 MiB) is an ASSUMPTION about server
+  config; a `413` on a part is reported LOUDLY as "the cap may be LOWER than the
+  part size", naming the part, and is never retried or silently split smaller
+  (`ChunkPartTooLargeError`). On the save side, the no-picker streaming path
+  accumulates `Blob`s and relies on the browser spilling Blob storage to disk for
+  a multi-GB file — that is the browser's behaviour, not ours to guarantee, so
+  peak memory on the anchor path is bounded by the browser, not by this app.
+- **Every chunk pin is unit-level.** They run in jsdom with a stubbed picker and an
+  INJECTED `ChunkWriter`; no part has been PUT to the live service and no chunked
+  file has been saved through a real picker, so the 64 MiB assumption and the
+  Cloudflare 100 MB wall are measured from the services' own docs, not exercised
+  end to end. Slice B and the owner's round trip are what exercise them.
