@@ -86,7 +86,8 @@ arm proves the pins hold the property. Both are needed.
 | The key is a password field, and the panel warns that it is stored in this browser | `the key field is a password and the panel warns that the key is stored in this browser` | `tests/features/settings.test.tsx` | Change `type="password"` to `type="text"`, or delete the warning paragraph. |
 | "Test connection" proves the DRAFT key with `whoami` and reports label, stores and permissions | `"Test connection" proves the DRAFT key with whoami and reports its label, stores and permissions` | `tests/features/settings.test.tsx` | Show a hard-coded "OK" instead of the `WhoAmI`: the label/stores/perms assertions RED. |
 | A failed probe/test shows the service's own words, inline AND through the toast | `a failed "Test connection" shows the service’s own words inline AND through the toast surface` · `a listing failure surfaces the service’s own message, inline AND through the toast surface` · `a failed object read surfaces the service’s own message and saves nothing` · `a failed delete surfaces the service’s own message, never a silent success` · `an upload failure surfaces the service’s own message and writes nothing else` | `tests/features/{settings,files,download}.test.tsx` | `catch {}` the failure (or report only `error.code`): the service message assertion REDs. |
-| After a FAILED request the key is in NO rendered text, NO toast and NO URL | `after a FAILED request the key appears in NO rendered text and NO toast` | `tests/features/settings.test.tsx` | Disable `redactCredential` (Arm D below): `document.body.textContent` and the toast text carry the key. |
+| After a FAILED request the STORED key is in NO rendered text, NO toast and NO URL | `after a FAILED request the key appears in NO rendered text and NO toast` | `tests/features/settings.test.tsx` | Disable `redactCredential` (Arm D below): `document.body.textContent` and the toast text carry the key. This pin covers the STORED-key path only; the credential actually in use is the row below. |
+| A FAILED test of a DRAFT key redacts THAT key too, not only the stored one | `a FAILED test of a DRAFT key redacts THAT key too, not only the stored one` | `tests/features/settings.test.tsx` | **Arm E below**: drop the explicit credential from `redactCredential`'s candidates → the alert reads `the key [redacted]_credential_111` (the draft key in plain text) while the stored-key pin beside it stays GREEN, so the arm is specific. Before the fix this pin was RED with exactly that output. |
 | The settings seam refuses an invalid value LOUDLY and writes nothing | `saving an invalid Base URL is refused LOUDLY and writes nothing` | `tests/features/settings.test.tsx` | Swallow the `writeSettings` throw: no toast, and the pin's `errorSpy` assertion REDs. |
 | The four connection states, and nothing thrown into the shell | `with no key the hook is unconfigured and proves NOTHING with whoami` · `a whitespace-only key is the same honest first run, not a request with a blank credential` · `a stored key becomes ready carrying the WhoAmI, proven through whoami` · `a refused key becomes failed carrying the error, and NOTHING throws into the shell` · `changing the settings proves the NEW key again` | `tests/app/useStore.test.tsx` | Remove the empty-key branch (`whoami` with a blank credential); or let the rejection escape the `.then` handler: the `failed` state never arrives. |
 | The listing shows the count and the four stored facts, with the digest TRUNCATED | `the listing shows the count and each object’s name, size, creation time and TRUNCATED digest` | `tests/features/files.test.tsx` | Render the full digest (or drop `size`/`createdAt`): the `title`/`queryByText` assertions RED. |
@@ -103,7 +104,7 @@ arm proves the pins hold the property. Both are needed.
 | A verified download goes through the REAL save seam with the object name and exact bytes | `a verified download goes through the save seam with the object name and the exact bytes` | `tests/features/download.test.tsx` | Suggest `file.name`/a MIME type, or pass pre-built bytes: the `anchor.download`/blob assertions RED. |
 | A CANCELLED save toasts nothing, errors nothing, and fetches nothing | `a CANCELLED save produces NO toast and NO error — and fetches nothing` | `tests/features/download.test.tsx` | Build the bytes before the picker: `getObject` is called before the cancel. |
 | A real error never auto-dismisses; the service's own message and a 429's wait are shown | `a real error is shown until the owner dismisses it — it never auto-dismisses` · `a store failure surfaces the service’s own message, with its code` · `a 429 is reported WITH the wait the service asked for, and says it was not retried` | `tests/lib/toast.test.ts` | Drop `duration: Infinity`; report `error.code` instead of `error.message`; drop the retry note. |
-| The credential is redacted from EVERY occurrence, and an empty key redacts nothing | `the key never survives into a toast, even when the service’s message echoes it back` · `the credential is redacted at EVERY occurrence, not only the first` · `an empty stored key redacts nothing, so ordinary text is never mangled` · `the text a caller renders inline is the SAME redacted text the toast shows` | `tests/lib/toast.test.ts` | Arm D below: redaction off. Replace `split/join` with a single `replace`: only the first occurrence goes. |
+| The credentials the app knows about are redacted at EVERY occurrence, and an empty key redacts nothing | `the key never survives into a toast, even when the service’s message echoes it back` · `the credential is redacted at EVERY occurrence, not only the first` · `an empty stored key redacts nothing, so ordinary text is never mangled` · `the text a caller renders inline is the SAME redacted text the toast shows` | `tests/lib/toast.test.ts` | Arm D below: redaction off. Replace `split/join` with a single `replace`: only the first occurrence goes. These pins exercise `redactCredential` through the STORED key; the in-use credential is threaded by the panel and pinned at `tests/features/settings.test.tsx` (the DRAFT-key row). |
 | The digest is the PUBLISHED SHA-256, in lowercase hex, for any input | `a known byte string digests to the PUBLISHED SHA-256, in lowercase hex` · `the empty byte string digests to the published empty SHA-256 (hashing is not a size check)` · `any input yields exactly 64 lowercase hex characters — no uppercase, no base64, no padding` | `tests/lib/sha256.test.ts` | Encode with `toString(16)` on the buffer, or hash the text form of the bytes: the published vector REDs. |
 | Sizes and timestamps are deterministic, and a bad value is LOUD or shown as sent | `a byte count reads in binary units, with the service’s own 64 MiB limit legible` · `a size that is not a real byte count is a LOUD refusal, never a plausible 0 B` · `an ISO timestamp reads as the UTC instant the service stored` · `a timestamp that is not a parseable date is shown EXACTLY as sent, never invented` | `tests/lib/format.test.ts` | Use `toLocaleString()` for the timestamp: the UTC assertion REDs on a host in another zone. Return `'0 B'` for a bad size: the `RangeError` pin REDs. |
 
@@ -315,6 +316,10 @@ was invisible until an injection aimed at the pin rather than at the code.
 
 ### 80d7186 — row 9 (the UI slice: settings, listing, upload, download, delete)
 
+**Corrected forward at `8d131d5`** — the dispatcher's probe found a DRAFT-key
+redaction gap in this landing; see the section below. Everything in THIS section
+is what was measured at `80d7186`, kept as history.
+
 - **Gate:** the ONE command, `bash scripts/gate.sh` (cheap `pnpm run typecheck`, then
   lint + the whole suite), run **in-turn and UN-PIPED** with the output redirected to
   files rather than filtered — **exit 0**. Counts read from the raw log, not inferred
@@ -389,3 +394,82 @@ was invisible until an injection aimed at the pin rather than at the code.
   no byte has been written through a real picker or against the live service; and the
   whole-app round trip needs the owner's `Arnd` key, which no agent may hold. See
   `docs/ARCHITECTURE.md` §4.
+
+### 8d131d5 — row 9, CORRECTED FORWARD: the DRAFT-key redaction gap
+
+**The claim was broader than the code, and the dispatcher's probe caught it.** The
+row-9 landing said the credential is redacted at every occurrence. It was not:
+`redactCredential` read the STORED key through `readSettings()`, while the Settings
+panel's "Test connection" sends a DRAFT key that is not saved yet — the key most
+likely to be brand new and therefore wrong.
+
+- **The dispatcher's probe** (a scratch file, since deleted; the branch tip was and is
+  untouched by it): stored `ssk_STORED_old_credential_000`, typed
+  `ssk_DRAFT_new_credential_111` into the Key field, mocked `whoami` to reject with a
+  `ServerStoreError` whose `message` and `serverMessage` contain the draft key, clicked
+  "Test connection", and read the DOM:
+
+  ```
+  PROBE-RESULT draft_in_dom=true draft_in_toast=true redacted_marker=false
+  AssertionError: expected 'Could not use the key: the key ssk_DR…' not to contain
+                  'ssk_DRAFT_new_credential_111'
+  Received: "Could not use the key: the key ssk_DRAFT_new_credential_111 was rejected"
+  ```
+
+  Rendered TWICE, in plain text, both `<p role="alert">`: `The connection test failed:
+  the key ssk_DRAFT_new_credential_111 was rejected` and `Could not use the key: the key
+  ssk_DRAFT_new_credential_111 was rejected`.
+- **The probe's own CONTROL, so it was not a broken probe:** the landing's
+  `after a FAILED request the key appears in NO rendered text and NO toast` still
+  PASSED for the stored key (`1 passed | 9 skipped`). The mechanism worked; its SCOPE
+  was one credential too narrow.
+- **My own reproduction, before touching the code:** the new pin was written FIRST and
+  run against the unfixed tree — **RED** (raw log `.gate-logs/pre-fix-repro.log`):
+
+  ```
+  FAIL  tests/features/settings.test.tsx > a FAILED test of a DRAFT key redacts THAT key too, not only the stored one
+  Expected element to have text content:  the key [redacted] was rejected
+  Received: The connection test failed: ServerStore refused (unauthorized): the key [redacted]_credential_111 was rejected
+  ```
+
+  That output also exposed a second defect in the same function, which the fix closes:
+  the STORED key was a prefix of the draft key, so a naive `split/join` per credential
+  redacted the shorter one and left the remainder of the longer one in the text. The
+  candidates are now redacted **longest first**, and the new pin holds that too (its
+  draft key is deliberately a superstring of the stored one).
+- **The fix** (`src/lib/toast.ts`, `src/features/settings/SettingsPanel.tsx`):
+  `redactCredential(text, credential?)` redacts the stored key ALWAYS and the caller's
+  credential IN USE when one is given — neither path depends on the other;
+  `errorMessage(error, context?, credential?)` and `ToastErrorOptions.credential` thread
+  it; every existing call site is unchanged and keeps the stored-key default. The panel
+  passes `draft.key` to the toast AND to the inline message, and its failed-probe state
+  now carries that already-composed message rather than the raw error, so an edit to the
+  key field after a failure cannot un-redact the old one, and the key does not enter
+  React state.
+- **Why the panel is the ONLY such call site, checked rather than assumed:**
+  `storeTargetFrom` has exactly two callers (`src/App.tsx:103`, the shell's stored-settings
+  probe, and `SettingsPanel.tsx:79`, the draft probe); every files flow builds its target
+  from the stored settings. The save path cannot echo a key either — a zod `ZodError`
+  message carries `path`/`code`/`message` and never the input value, measured for a
+  `too_small` and an `invalid_format` issue with the key in the same object.
+- **Gate on the fix tip (`8d131d5`):** the ONE command, in-turn, foreground, UN-PIPED,
+  raw log kept — **exit 0**, **16 test files, 128 passed / 128 tests** (the file count is
+  unchanged and the count is the row-9 baseline +1, as required), peak RSS **772,188 KB**,
+  wall **22.36 s**.
+- **Arm E (the new property watched RED), hashes printed before/after, restore from HEAD
+  in a `trap`:** injection — drop the explicit credential from the candidate list,
+  `const secrets = [storedKey(), credential ?? '']` → `const secrets = [storedKey(), '']`;
+  `src/lib/toast.ts` `sha256=fb1e5240111d2cc4e3c4572e38f1a3368af1ded2d658157ef4cc1a319ccbd92b`
+  → `sha256=efd8b740943fd45e3bd7626a78a24b7acc0f735287c5b1e1a46c0c5d90097ea5` — a
+  DIFFERENT hash, so not VOID → **RED** (exit 1, **1 failed | 10 passed**) on exactly
+  `a FAILED test of a DRAFT key redacts THAT key too, not only the stored one`, while the
+  stored-key pin in the same file stayed GREEN (the arm is specific, not a broken file).
+  Restored to `fb1e5240…`, identical to `git show HEAD:src/lib/toast.ts | sha256sum`; the
+  tree is clean and no browser was started (`ps -eo comm= | grep -cE
+  '^(chrome|chromium|headless_shell|playwright)$'` → `0`).
+- **What remains unproven:** the redaction is still a TEXT guard, not a guarantee — it can
+  only remove credentials the app knows about, so a credential that reached a message
+  from somewhere else (a key the owner typed into a field the app never read, a
+  server-side echo of a DIFFERENT key) is out of its reach. That is why the seams below
+  must never format a key into a message in the first place; this surface is the last
+  line, not the first.

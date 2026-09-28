@@ -24,7 +24,7 @@ Each of those has exactly one home below it.
 | --- | --- | --- | --- |
 | The app's name | the `served` state | [src/lib/name.ts](src/lib/name.ts) | **LANDED ad5c839** — `toObjectName` (line 146), `OBJECT_NAME_PATTERN` (44), `ObjectNameMappingError` (63). Real file name ↔ a ServerStore-legal object name (`[a-z0-9][a-z0-9._-]{0,63}`). The mapping is shown to the owner before an upload (`changed`); a name that cannot map legally is a loud refusal, never a guess. |
 | The app's settings | `src/settings/settings.ts` | [src/settings/settings.ts](src/settings/settings.ts) | **LANDED ad5c839** — `readSettings` (133), `writeSettings` (147), `forgetKey` (166), `DEFAULT_SETTINGS` (55). The ONE persisted state: `baseUrl`, `store`, `key`. `localStorage`, zod-validated on read; a corrupt stored value is reported as `{corrupt, problem}`, never silently replaced by defaults — and the key never enters a message. |
-| The app's error surface | `src/lib/toast.ts` | [src/lib/toast.ts](src/lib/toast.ts) | **LANDED 80d7186** — `toastError` (105), `errorMessage` (100), `errorText` (89), `redactCredential` (60), `ERROR_TOAST_DURATION_MS` (37); 116 lines. The ONE place a failure becomes something the owner can see: a real error carries `duration: Infinity` (never auto-dismisses) and a cancellation never reaches it. `errorMessage` is the ONE composition the toast AND every inline failure render share, and it redacts the stored credential from arbitrary text (a toast is rendered text; the service's `message` is not trusted). |
+| The app's error surface | `src/lib/toast.ts` | [src/lib/toast.ts](src/lib/toast.ts) | **LANDED 80d7186, corrected forward 8d131d5** — `toastError` (136), `errorMessage` (131), `errorText` (119), `redactCredential` (83), `ToastErrorOptions.credential` (55), `REDACTED_CREDENTIAL` (52), `ERROR_TOAST_DURATION_MS` (49); 147 lines. The ONE place a failure becomes something the owner can see: a real error carries `duration: Infinity` (never auto-dismisses) and a cancellation never reaches it. `errorMessage` is the ONE composition the toast AND every inline failure render share, and it redacts every credential the app KNOWS ABOUT from arbitrary text — the STORED key always, plus the credential a caller says it actually SENT (`credential`), which is how the Settings panel's probe of an unsaved DRAFT key is covered; candidates are redacted longest-first, so a stored key that is a prefix of the one in use cannot leave the longer credential's remainder behind. A toast is rendered text, and the service's `message` is not trusted. |
 | The proven connection | `useStore` | [src/app/useStore.ts](src/app/useStore.ts) | **LANDED 80d7186** — `useStore` (67), `storeTargetFrom` (51), `StoreConnection` (40); 101 lines. `unconfigured` (no key — an honest first run, NOT an error) · `connecting` · `ready` (carrying `WhoAmI`) · `failed` (carrying the error). The key is PROVEN with `whoami`, never assumed from `healthz` (which needs no key at all), and nothing throws into the shell. `storeTargetFrom` is the ONE place the three settings become a `StoreTarget`. |
 | The digest of bytes | `sha256Hex` | [src/lib/sha256.ts](src/lib/sha256.ts) | **LANDED 80d7186** — `sha256Hex` (24); 31 lines. Lowercase hex SHA-256 via `crypto.subtle`. It exists for exactly ONE caller: the download flow's check of the received bytes against the service's `x-serverstore-sha256` (`src/features/files/download.ts` L47). |
 | The store's flows | `src/features/files/**` | [src/features/files/](src/features/files/) | **LANDED 80d7186** — `reviewUploads` (upload.ts L58), `unconfirmedOverwrites` (L109 — ledger row 4's gate), `verifiedObjectBytes` / `downloadObject` (download.ts L41/L64), `useObjects` (L58), `UploadPanel` (L53), `FileBrowser` (L35). The listing shows only `name`/`size`/`createdAt`/truncated `sha256`; the upload reviews every file before any request; a download verifies before the save seam is allowed to write; a delete asks first. |
@@ -62,9 +62,16 @@ Each of those has exactly one home below it.
 - **A toast is rendered text, so the credential rule reaches it.** The service's
   `message` is arbitrary text a hostile or buggy proxy could make echo the
   `Authorization` header back, so the ONE owner-facing composition
-  (`errorMessage`) redacts the *stored* key before either the toast or an inline
-  render sees it. A component that composes its own error string is a second
-  place for that key to appear — route every failure through the seam.
+  (`errorMessage`) redacts the credentials the app knows about before either the
+  toast or an inline render sees it. **A caller that sent a credential other than
+  the STORED one must say so** (`ToastErrorOptions.credential` /
+  `errorMessage(error, context, credential)`) — the Settings panel's "Test
+  connection" probes an unsaved DRAFT key, and that is the credential most likely
+  to be new and wrong. Getting this wrong was a real defect, not a hypothetical:
+  the row-9 first landing redacted only the stored key and printed the draft key in
+  plain text in both surfaces (see `docs/TESTING.md` §`8d131d5`). A component that
+  composes its own error string is a second place for that key to appear — route
+  every failure through the seam, and pass the credential you actually sent.
 - **The store documents NO order for a listing.** `?prefix=` is the only filter
   and there is no `sort`/`cursor`/`limit`, so the order the service answers with
   is not a contract. `src/features/files/useObjects.ts` sorts newest-first (then
