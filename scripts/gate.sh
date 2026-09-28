@@ -32,6 +32,12 @@ set -u
 # this repo reads process.env.CI.
 export CI="${CI:-true}"
 
+# EVERY expensive run carries a memory ceiling (AGENTS.md §Host hygiene). It
+# lives HERE, in the one gate, rather than in whoever remembers to type it — a
+# bound that depends on remembering is not a bound. Override deliberately if a
+# larger suite ever needs it.
+export NODE_OPTIONS="${NODE_OPTIONS:---max-old-space-size=4096}"
+
 # --- where the repo is -------------------------------------------------------
 # Derived from the GIT COMMON dir, so this is the SAME path from the main tree and
 # from every worktree. That is what makes it ONE lock across writers.
