@@ -43,12 +43,14 @@ is a line, not a paragraph.
 ## Board
 
 ```
-reconciled: PENDING · 2026-09-28T16:40Z
+reconciled: ab47e94a197267087751a877233a9c272bd02be1 · 2026-09-28T14:32Z
 
 SESSION | id=dsh-file-store-bootstrap | model=deepseek-flash | state=dispatching
 
-IN-FLIGHT | row=7 | slice=serverstore-transport | session=<none yet> | worktree=/home/administrator/projects/FileStore/worktrees/serverstore-transport | branch=feat/serverstore-transport | base=origin/main@PENDING | state=DISPATCHED | scope=src/server/store-errors.ts + src/server/store-client.ts + tests/server/** ONLY
-IN-FLIGHT | row=8 | slice=browser-io-and-settings | session=<none yet> | worktree=/home/administrator/projects/FileStore/worktrees/browser-io-and-settings | branch=feat/browser-io-and-settings | base=origin/main@PENDING | state=DISPATCHED | scope=src/lib/saveFile.ts + src/lib/openFile.ts + src/lib/name.ts + src/settings/settings.ts + tests/lib/** + tests/settings/** ONLY
+LANDED | row=none (day-1 scaffold) | sha=ab47e94a197267087751a877233a9c272bd02be1 | verify=MY OWN: cheap tier exit 2 (suite NOT run) + full gate GREEN exit 0 · 1/1 test · raw log .gate-logs/gate.log · build verified by grep: dist/index.html references /filestore/assets/... | arms=none — there is no pinned behaviour yet to break | docs=AGENTS.md, this board, ledger rows 1-7, ARCHITECTURE.md, TESTING.md, BRIEF.md | note=the machinery, established BEFORE feature code; remote https://github.com/ArndRosemeier/FileStore.git created PUBLIC (the push token refuses private repo creation) with both SHAs equal after push
+
+IN-FLIGHT | row=7 | slice=serverstore-transport | session=<none yet> | worktree=/home/administrator/projects/FileStore/worktrees/serverstore-transport | branch=feat/serverstore-transport | base=origin/main@ab47e94a197267087751a877233a9c272bd02be1 | state=DISPATCHED | scope=src/server/store-errors.ts + src/server/store-client.ts + tests/server/** ONLY
+IN-FLIGHT | row=8 | slice=browser-io-and-settings | session=<none yet> | worktree=/home/administrator/projects/FileStore/worktrees/browser-io-and-settings | branch=feat/browser-io-and-settings | base=origin/main@ab47e94a197267087751a877233a9c272bd02be1 | state=DISPATCHED | scope=src/lib/saveFile.ts + src/lib/openFile.ts + src/lib/name.ts + src/settings/settings.ts + tests/lib/** + tests/settings/** ONLY
 
 QUEUE | row=none | OPERATOR ACTION: ServerStore has NO `files` store, and this app holds no key. The `files` store must exist and a key scoped to ["files"] with perms read,write,delete must be minted. Measured 2026-09-28 by reading the service DB: stores are master, colossus, imager. | src=the dispatcher's report
 QUEUE | row=9 | the UI slice: the app shell, settings panel, upload/list/retrieve flows — replaces the day-1 placeholder src/App.tsx. Dispatched after rows 7 and 8 land. | src=the owner's request
@@ -67,7 +69,8 @@ RECOVERY | repo=/home/administrator/projects/FileStore | remote=https://github.c
   by default, so a bare `pnpm exec vitest run` cannot exceed it whatever anyone
   forgets. Verify: read `DEFAULT_TEST_WORKERS` in `vite.config.ts`.
 - **`GUARD` — the host is shared with Imager.** Imager ran its own full suite while
-  this project was set up (its `.imager-lock` was held at 2026-09-28T16:26Z). One
+  this project was set up (its `.imager-lock` was held at 2026-09-28T14:26Z UTC —
+  file mtimes on this box read local, UTC+2, and were MISTAKEN for UTC once already). One
   expensive check at a time, and FileStore's writers run in-turn.
 
 ## Traps (each with the rule that prevents it)
