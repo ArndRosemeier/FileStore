@@ -73,8 +73,7 @@ export const SETTINGS_STORAGE_KEY = 'filestore.settings';
  * wrong, by PATH, never by value.
  */
 export type SettingsRead =
-  | { status: 'ok'; settings: Settings }
-  | { status: 'corrupt'; settings: Settings; problem: string };
+  { status: 'ok'; settings: Settings } | { status: 'corrupt'; settings: Settings; problem: string };
 
 /** `localStorage`, or `undefined` in an environment that has none. */
 function storage(): Storage | undefined {
@@ -166,8 +165,6 @@ export function writeSettings(settings: Settings): void {
 export function forgetKey(): void {
   const current = readSettings();
   writeSettings(
-    current.status === 'ok'
-      ? { ...current.settings, key: '' }
-      : { ...DEFAULT_SETTINGS, key: '' },
+    current.status === 'ok' ? { ...current.settings, key: '' } : { ...DEFAULT_SETTINGS, key: '' },
   );
 }

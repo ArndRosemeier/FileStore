@@ -66,6 +66,10 @@ arm proves the pins hold the property. Both are needed.
 | --- | --- | --- | --- |
 | The app mounts and names itself (and the whole test harness agrees end to end) | `mounts and names the app` | `tests/app/shell.test.tsx` | Change the heading text in `src/App.tsx`; the role/name query finds nothing. |
 | The suite collects NOTHING from a writer worktree, and keeps vitest's default excludes | `the suite never collects tests from a writer worktree, and keeps the default excludes` | `tests/architecture/worktree-isolation.test.ts` | Delete `'**/worktrees/**'` from `test.exclude` in `vite.config.ts` — watched RED, arms below. |
+| The save seam's branch matrix: picker used; a cancel is silent and free; a real failure is loud; the anchor is the fallback | 9 tests, incl. `a present picker is used: suggested name, MIME type, bytes written and closed` · `a cancelled picker is the owner changing his mind: silent, and nothing was built` · `a real failure keeps its own reason — the caller must surface it loudly` · `an absent picker falls back to the anchor download with the suggested name` | `tests/lib/saveFile.test.ts` | Arm A below: build the bytes BEFORE the picker → the cancel-cost pin and the ordering pin both RED. |
+| The open seam's branch matrix, MULTIPLE files, and the input fallback | 13 tests, incl. `several picked files all come back, in the order they were chosen` · `a cancelled picker is the owner changing his mind: silent` · `dismissing the input dialog is a SILENT cancel and removes the element` · `choosing files through the input yields every name and every byte, in order` | `tests/lib/openFile.test.ts` | `multiple` is forwarded to BOTH branches, pinned; the pending-on-old-browser case has no pin because it has no signal to pin (see the debt row). |
+| A file name maps to a legal object name, or THROWS | 10 tests, incl. `an ordinary messy name maps to a legal one and REPORTS the change` · `a name carrying a POSIX path is reduced to its basename` · `a 200-character name maps to at most 64 legal characters and keeps its extension` · `a name that CANNOT map throws, and never returns a placeholder` | `tests/lib/name.test.ts` | Arm B below: stop keeping the extension past 64 chars → the 200-character pin RED. |
+| Settings: defaults on empty, round-trip, corrupt REPORTED (not silent), key cleared alone | 13 tests, incl. `invalid JSON is REPORTED as corrupt, with the defaults and a problem — never silent` · `forgetKey clears ONLY the key and leaves baseUrl and store exactly as they were` · `the thrown validation error names the failing FIELD and never the credential value` | `tests/settings/settings.test.ts` | The corruption arms are the two `corrupt` tests; the credential check is `not.toContain(secret)`. |
 
 ## Raw logs
 
@@ -113,3 +117,58 @@ trees at once.
   (`fileURLToPath(new URL('./src', import.meta.url))`, because vitest's transform
   hands the module a non-`file:` URL). Measured, not assumed — the first version
   of this pin failed exactly that way, and the log is in `.gate-logs/`.
+
+### ad5c839 — row 8 (the browser IO seams and the settings seam)
+
+- **Gate:** `bash scripts/gate.sh`, cheap tier (typecheck) + full tier (lint + the
+  whole suite) — **exit 0**. Counts read from the raw log, not inferred from the exit
+  code (the worktree-isolation TRAP): **6 test files, 47 passed / 47 tests**. The suite
+  was **2 test files / 2 tests** before this landing, so the new files are the 45 pins
+  in the matrix above. Raw log `.gate-logs/gate.log` (the gate writes it to the git
+  COMMON dir, which is this `/home/administrator/projects/FileStore` checkout's
+  `.gate-logs/`; a copy is kept in the writer's worktree).
+- **Peak memory:** the gate's own ceiling, `NODE_OPTIONS=--max-old-space-size=4096`
+  (set inside `scripts/gate.sh`, not remembered by hand); the suite run took 3.5 s
+  wall. No browser was started — every pin is jsdom — so no browser tree was owed a
+  kill.
+- **COPIES: 2→1 — the owner-cancel predicate (`src/lib/abort.ts`).** The Imager ports
+  would have carried two verbatim copies of `isAbortError` (one per seam); it was
+  folded into `src/lib/abort.ts` before either seam shipped. Checked by grep:
+  `isAbortError` appears in exactly three places — its definition (`src/lib/abort.ts`
+  line 17) and its two imports and calls (`src/lib/saveFile.ts` line 126,
+  `src/lib/openFile.ts` line 177). There is no fourth definition and no inline
+  `name === 'AbortError'` test outside that module (the remaining `AbortError`
+  occurrences are the picker stubs in the two test files, which must name the browser's
+  real error, and the two seam headers' branch matrices).
+- **Arm A — injection: the save seam builds its bytes BEFORE the picker.**
+  `src/lib/saveFile.ts`
+  `sha256=b61f07374f1768660a6a1433c821e9f9eb41d5a88a1ea09e16d469670216dcd6` → injected
+  `sha256=d8f3ef59fe29dcaf5502587f460340255a08f80cacb5e0f8ee61ba55d86da155` (a
+  DIFFERENT hash, so the arms are not VOID). The pin's OWN test file run alone goes
+  **RED** (exit 1):
+  `a cancelled picker is the owner changing his mind: silent, and nothing was built`
+  → `AssertionError: expected "vi.fn()" to not be called at all, but actually been
+  called 1 times`; and the companion ordering pin
+  `the bytes are built AFTER the picker returns, so a slow build cannot lose the click`
+  → `expected "vi.fn()" to be called 1 times, but got 2 times`. The property broken is
+  the one the seam's shape exists for: a cancel must never pay for the build.
+- **Arm B — injection: the name mapping stops keeping the extension past 64
+  characters.** `src/lib/name.ts`
+  `sha256=f4254ded417da40621d7f3849b3a648a14317d04553c5870418a5f260e0a7256` → injected
+  `sha256=6c73549bee792be372b80ab3ff5fa42d4171d96c37eb545318ae5febcdda4f57`
+  (different, so not VOID, and different from arm A's because it is a different file).
+  Pin **RED** (exit 1):
+  `a 200-character name maps to at most 64 legal characters and keeps its extension` →
+  `AssertionError: expected false to be true` (the mapped name no longer ends `.pdf`).
+- **Arm C — restore from HEAD, in a `trap`:** both files returned to their `before`
+  hashes (`saveFile.ts` = `b61f073…`, `name.ts` = `f4254de…`), on a tree whose source
+  was COMMITTED first (`ad5c839`), so the restore was `git checkout -- <path>` from
+  HEAD and could not wipe uncommitted work. The injection ran with no second actor in
+  the tree; the gate lock was not taken, because the differential is not a shared
+  expensive check.
+- **What is NOT pinned, and is debt rather than a papered-over gap:** a dismissed dialog
+  on a browser with neither the picker nor the input `cancel` event leaves `openFile`'s
+  promise PENDING. There is no signal to assert on, so there is no pin; the alternative
+  — inventing a `cancelled` the browser never sent — is the silent fallback rule 1
+  forbids. See `docs/ARCHITECTURE.md` §4.
+

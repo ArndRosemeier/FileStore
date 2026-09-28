@@ -22,13 +22,13 @@ below it.
 
 | Seam | The ONE way | Where | Notes |
 | --- | --- | --- | --- |
-| The app's name | the `served` state | [src/lib/name.ts](src/lib/name.ts) | **PLANNED — row 8.** Real file name ↔ a ServerStore-legal object name (`[a-z0-9][a-z0-9._-]{0,63}`). The mapping is shown to the owner before an upload; a name that cannot map legally is a loud refusal, never a guess. |
-| The app's settings | `src/settings/settings.ts` | [src/settings/settings.ts](src/settings/settings.ts) | **PLANNED — row 8.** The ONE persisted state: `baseUrl`, `store`, `key`. `localStorage`, zod-validated on read; a corrupt stored value is reported, never silently replaced by defaults. |
-| The app's error surface | `src/lib/toast.ts` | [src/lib/toast.ts](src/lib/toast.ts) | **PLANNED — row 8.** The ONE place a failure becomes something the owner can see. A real error does not auto-dismiss. |
+| The app's name | the `served` state | [src/lib/name.ts](src/lib/name.ts) | **LANDED ad5c839** — `toObjectName` (line 146), `OBJECT_NAME_PATTERN` (44), `ObjectNameMappingError` (63). Real file name ↔ a ServerStore-legal object name (`[a-z0-9][a-z0-9._-]{0,63}`). The mapping is shown to the owner before an upload (`changed`); a name that cannot map legally is a loud refusal, never a guess. |
+| The app's settings | `src/settings/settings.ts` | [src/settings/settings.ts](src/settings/settings.ts) | **LANDED ad5c839** — `readSettings` (133), `writeSettings` (147), `forgetKey` (166), `DEFAULT_SETTINGS` (55). The ONE persisted state: `baseUrl`, `store`, `key`. `localStorage`, zod-validated on read; a corrupt stored value is reported as `{corrupt, problem}`, never silently replaced by defaults — and the key never enters a message. |
+| The app's error surface | `src/lib/toast.ts` | [src/lib/toast.ts](src/lib/toast.ts) | **PLANNED — row 9.** The ONE place a failure becomes something the owner can see. A real error does not auto-dismiss. |
 | Talking to ServerStore | `src/server/store-client.ts` | [src/server/store-client.ts](src/server/store-client.ts) | **PLANNED — row 7.** The ONE `fetch` to the store: `whoami`, `healthz`, `listObjects`, `getObject`, `putObject`, `deleteObject`. Puts the key in exactly ONE header; never logs it, never puts it in a URL or a message. Reports `429`/`5xx`; never retries. |
 | ServerStore's error vocabulary | `src/server/store-errors.ts` | [src/server/store-errors.ts](src/server/store-errors.ts) | **PLANNED — row 7.** The service's `{error:{code,message}}` envelope → one typed error. `code` is branchable; `message` is shown verbatim. |
-| Putting bytes on disk | `src/lib/saveFile.ts` | [src/lib/saveFile.ts](src/lib/saveFile.ts) | **PLANNED — row 8.** `showSaveFilePicker` where present, a temporary `<a download>` otherwise. A cancelled picker is an OUTCOME (`{status:'cancelled'}`), not an error; a real failure throws. |
-| Taking files in from disk | `src/lib/openFile.ts` | [src/lib/openFile.ts](src/lib/openFile.ts) | **PLANNED — row 8.** `showOpenFilePicker` where present, a hidden `<input type=file>` otherwise. Same cancel-is-silent rule. |
+| Putting bytes on disk | `src/lib/saveFile.ts` | [src/lib/saveFile.ts](src/lib/saveFile.ts) | **LANDED ad5c839** — `saveFile` (111). `showSaveFilePicker` where present, a temporary `<a download>` otherwise; the picker runs BEFORE `buildBytes()`. A cancelled picker is an OUTCOME (`{status:'cancelled'}`), not an error; a real failure throws. |
+| Taking files in from disk | `src/lib/openFile.ts` | [src/lib/openFile.ts](src/lib/openFile.ts) | **LANDED ad5c839** — `openFile` (164), `OpenFileRequest` (50), `OpenedFile` (62). `showOpenFilePicker` where present, a hidden `<input type=file>` otherwise; MULTIPLE files, forwarded to both branches. Same cancel-is-silent rule. |
 | The store's display name | — | — | none yet: the store name is a setting with the default `files`. |
 
 ## 3 · Gotchas
@@ -66,7 +66,19 @@ below it.
   `serverstore-client` package** consumed by both apps. Until then, a fix to one copy
   is not a fix to the other — say so in the landing.
 - **The object name loses the original file name** (ledger row 2). Bounded to
-  `src/lib/name.ts` plus UI copy.
+  `src/lib/name.ts` plus UI copy; `toObjectName` reports `changed` so the UI can
+  show the mapping before an upload.
+- **A dismissed open dialog can leave `openFile` pending.** On a browser with
+  neither `showOpenFilePicker` nor `HTMLInputElement`'s `cancel` event (Chrome
+  <113), the hidden-input fallback has no signal for "the owner dismissed it", so
+  the promise stays PENDING and the UI must not treat the flow as finished. That
+  is the honest failure — inventing a `cancelled` answer the browser never gave
+  would be a silent fallback (rule 1). Documented in `src/lib/openFile.ts`'s
+  header; not fixable from inside the browser.
+- **Every browser-IO pin is jsdom with a stubbed picker.** No test in this repo
+  has driven a REAL `showSaveFilePicker`/`showOpenFilePicker`; the stubs stand in
+  for the method's name, signature and async-ness, which is the strongest claim
+  jsdom can make. A real-browser check is owed (ledger row 8, "unproven").
 - **No pagination anywhere**, because the service has none: a very large store is one
   large listing. Mitigated only by `?prefix=` searching.
 - **`src/App.tsx` is a day-1 placeholder** that renders no store browser; it is

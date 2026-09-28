@@ -110,7 +110,12 @@ it('`multiple` and the accept filter are forwarded to the picker, not just the f
   expect(picker.calls).toEqual([
     {
       multiple: true,
-      types: [{ description: 'Files to upload', accept: { 'application/octet-stream': ['.pdf', '.txt'] } }],
+      types: [
+        {
+          description: 'Files to upload',
+          accept: { 'application/octet-stream': ['.pdf', '.txt'] },
+        },
+      ],
     },
   ]);
 });
